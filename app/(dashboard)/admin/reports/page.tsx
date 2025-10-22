@@ -6,11 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
 import ChartCard from "@/components/ui/ChartCard";
-import { 
-  BarChart3, 
-  TrendingUp, 
-  Users, 
-  BookOpen, 
+import {
+  BarChart3,
+  TrendingUp,
+  Users,
+  BookOpen,
   GraduationCap,
   UserCheck,
   Calendar,
@@ -22,7 +22,7 @@ import {
   Eye,
   Activity,
   Target,
-  Zap
+  Zap,
 } from "lucide-react";
 
 // Mock analytics data
@@ -40,11 +40,36 @@ const userGrowthData = [
 ];
 
 const courseEngagementData = [
-  { course: "React Fundamentals", enrollments: 450, completions: 380, revenue: 134550 },
-  { course: "JavaScript Advanced", enrollments: 320, completions: 280, revenue: 127680 },
-  { course: "Node.js Backend", enrollments: 280, completions: 240, revenue: 125720 },
-  { course: "Database Design", enrollments: 200, completions: 180, revenue: 49800 },
-  { course: "UI/UX Design", enrollments: 180, completions: 160, revenue: 50220 },
+  {
+    course: "React Fundamentals",
+    enrollments: 450,
+    completions: 380,
+    revenue: 134550,
+  },
+  {
+    course: "JavaScript Advanced",
+    enrollments: 320,
+    completions: 280,
+    revenue: 127680,
+  },
+  {
+    course: "Node.js Backend",
+    enrollments: 280,
+    completions: 240,
+    revenue: 125720,
+  },
+  {
+    course: "Database Design",
+    enrollments: 200,
+    completions: 180,
+    revenue: 49800,
+  },
+  {
+    course: "UI/UX Design",
+    enrollments: 180,
+    completions: 160,
+    revenue: 50220,
+  },
 ];
 
 const attendanceTrendData = [
@@ -138,27 +163,38 @@ export default function AdminReportsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className={cn(
-        "rounded-2xl p-6",
-        glassStyles.card,
-        "shadow-glass-sm",
-        animationClasses.fadeIn
-      )}>
+      <div
+        className={cn(
+          "rounded-2xl p-6",
+          glassStyles.card,
+          "shadow-glass-sm",
+          animationClasses.fadeIn
+        )}
+      >
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-foreground mb-2">
               Analytics & Reports 📊
             </h1>
             <p className="text-muted-foreground">
-              Comprehensive insights into platform performance and user engagement.
+              Comprehensive insights into platform performance and user
+              engagement.
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2"
+            >
               <Filter className="h-4 w-4" />
               Filter
             </Button>
-            <Button variant="outline" size="sm" className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2"
+            >
               <RefreshCw className="h-4 w-4" />
               Refresh
             </Button>
@@ -190,11 +226,17 @@ export default function AdminReportsPage() {
                     <Icon className={cn("h-6 w-6", metric.color)} />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">{metric.title}</p>
-                    <p className="text-2xl font-bold text-foreground">{metric.value}</p>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      {metric.title}
+                    </p>
+                    <p className="text-2xl font-bold text-foreground">
+                      {metric.value}
+                    </p>
                     <div className="flex items-center gap-1 mt-1">
                       <TrendingUp className="h-3 w-3 text-green-600" />
-                      <span className="text-xs text-green-600 font-medium">{metric.change}</span>
+                      <span className="text-xs text-green-600 font-medium">
+                        {metric.change}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -222,17 +264,22 @@ export default function AdminReportsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ChartCard
           title="Attendance Trend"
-          data={attendanceTrendData}
+          data={attendanceTrendData.map((item) => ({
+            month: item.month,
+            users: item.attendance,
+          }))}
           type="line"
         />
-        
+
         {/* Revenue Breakdown */}
-        <Card className={cn(
-          glassStyles.card,
-          glassStyles.cardHover,
-          "rounded-2xl shadow-glass-sm",
-          animationClasses.scaleIn
-        )}>
+        <Card
+          className={cn(
+            glassStyles.card,
+            glassStyles.cardHover,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
               <BarChart3 className="h-5 w-5 text-primary" />
@@ -244,13 +291,25 @@ export default function AdminReportsPage() {
               {courseEngagementData.map((course, index) => (
                 <div key={index} className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-foreground">{course.course}</span>
-                    <span className="text-sm text-muted-foreground">${course.revenue.toLocaleString()}</span>
+                    <span className="text-sm font-medium text-foreground">
+                      {course.course}
+                    </span>
+                    <span className="text-sm text-muted-foreground">
+                      ${course.revenue.toLocaleString()}
+                    </span>
                   </div>
                   <div className="w-full bg-muted/30 rounded-full h-2">
-                    <div 
+                    <div
                       className="bg-primary h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${(course.revenue / Math.max(...courseEngagementData.map(c => c.revenue))) * 100}%` }}
+                      style={{
+                        width: `${
+                          (course.revenue /
+                            Math.max(
+                              ...courseEngagementData.map((c) => c.revenue)
+                            )) *
+                          100
+                        }%`,
+                      }}
                     />
                   </div>
                 </div>
@@ -264,12 +323,14 @@ export default function AdminReportsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Activities */}
         <div className="lg:col-span-1">
-          <Card className={cn(
-            glassStyles.card,
-            glassStyles.cardHover,
-            "rounded-2xl shadow-glass-sm",
-            animationClasses.scaleIn
-          )}>
+          <Card
+            className={cn(
+              glassStyles.card,
+              glassStyles.cardHover,
+              "rounded-2xl shadow-glass-sm",
+              animationClasses.scaleIn
+            )}
+          >
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
                 <Activity className="h-5 w-5 text-primary" />
@@ -309,12 +370,14 @@ export default function AdminReportsPage() {
 
         {/* Quick Stats */}
         <div className="lg:col-span-2">
-          <Card className={cn(
-            glassStyles.card,
-            glassStyles.cardHover,
-            "rounded-2xl shadow-glass-sm",
-            animationClasses.scaleIn
-          )}>
+          <Card
+            className={cn(
+              glassStyles.card,
+              glassStyles.cardHover,
+              "rounded-2xl shadow-glass-sm",
+              animationClasses.scaleIn
+            )}
+          >
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
                 <Eye className="h-5 w-5 text-primary" />
@@ -329,7 +392,9 @@ export default function AdminReportsPage() {
                       <Users className="h-6 w-6 text-blue-600" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-muted-foreground">New Users This Month</p>
+                      <p className="text-sm font-medium text-muted-foreground">
+                        New Users This Month
+                      </p>
                       <p className="text-2xl font-bold text-foreground">163</p>
                     </div>
                   </div>
@@ -338,8 +403,12 @@ export default function AdminReportsPage() {
                       <BookOpen className="h-6 w-6 text-green-600" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-muted-foreground">Courses Completed</p>
-                      <p className="text-2xl font-bold text-foreground">1,240</p>
+                      <p className="text-sm font-medium text-muted-foreground">
+                        Courses Completed
+                      </p>
+                      <p className="text-2xl font-bold text-foreground">
+                        1,240
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -349,7 +418,9 @@ export default function AdminReportsPage() {
                       <GraduationCap className="h-6 w-6 text-purple-600" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-muted-foreground">Active Teachers</p>
+                      <p className="text-sm font-medium text-muted-foreground">
+                        Active Teachers
+                      </p>
                       <p className="text-2xl font-bold text-foreground">82</p>
                     </div>
                   </div>
@@ -358,7 +429,9 @@ export default function AdminReportsPage() {
                       <UserCheck className="h-6 w-6 text-orange-600" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-muted-foreground">Online Students</p>
+                      <p className="text-sm font-medium text-muted-foreground">
+                        Online Students
+                      </p>
                       <p className="text-2xl font-bold text-foreground">342</p>
                     </div>
                   </div>
@@ -371,19 +444,23 @@ export default function AdminReportsPage() {
 
       {/* Additional Insights */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className={cn(
-          glassStyles.card,
-          glassStyles.cardHover,
-          "rounded-2xl shadow-glass-sm",
-          animationClasses.scaleIn
-        )}>
+        <Card
+          className={cn(
+            glassStyles.card,
+            glassStyles.cardHover,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
           <CardContent className="p-6">
             <div className="flex items-center gap-3">
               <div className="p-3 rounded-xl bg-green-100">
                 <TrendingUp className="h-6 w-6 text-green-600" />
               </div>
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Conversion Rate</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Conversion Rate
+                </p>
                 <p className="text-2xl font-bold text-foreground">12.4%</p>
                 <p className="text-xs text-green-600">+2.1% from last month</p>
               </div>
@@ -391,19 +468,23 @@ export default function AdminReportsPage() {
           </CardContent>
         </Card>
 
-        <Card className={cn(
-          glassStyles.card,
-          glassStyles.cardHover,
-          "rounded-2xl shadow-glass-sm",
-          animationClasses.scaleIn
-        )}>
+        <Card
+          className={cn(
+            glassStyles.card,
+            glassStyles.cardHover,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
           <CardContent className="p-6">
             <div className="flex items-center gap-3">
               <div className="p-3 rounded-xl bg-blue-100">
                 <Clock className="h-6 w-6 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Avg Session Time</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Avg Session Time
+                </p>
                 <p className="text-2xl font-bold text-foreground">24m</p>
                 <p className="text-xs text-blue-600">+3m from last month</p>
               </div>
@@ -411,19 +492,23 @@ export default function AdminReportsPage() {
           </CardContent>
         </Card>
 
-        <Card className={cn(
-          glassStyles.card,
-          glassStyles.cardHover,
-          "rounded-2xl shadow-glass-sm",
-          animationClasses.scaleIn
-        )}>
+        <Card
+          className={cn(
+            glassStyles.card,
+            glassStyles.cardHover,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
           <CardContent className="p-6">
             <div className="flex items-center gap-3">
               <div className="p-3 rounded-xl bg-purple-100">
                 <Target className="h-6 w-6 text-purple-600" />
               </div>
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Retention Rate</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Retention Rate
+                </p>
                 <p className="text-2xl font-bold text-foreground">78.5%</p>
                 <p className="text-xs text-purple-600">+5.2% from last month</p>
               </div>
