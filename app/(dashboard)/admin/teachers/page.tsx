@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,11 +8,12 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
-import { 
-  Search, 
-  Plus, 
-  Edit, 
-  Trash2, 
+import { useToast } from "@/hooks/use-toast";
+import {
+  Search,
+  Plus,
+  Edit,
+  Trash2,
   GraduationCap,
   Users,
   BookOpen,
@@ -25,11 +26,39 @@ import {
   UserCheck,
   UserX,
   Award,
-  Clock
+  Clock,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Loader2,
 } from "lucide-react";
+import TeacherForm from "@/components/admin/TeacherForm";
+import TeacherDetailsModal from "@/components/admin/TeacherDetailsModal";
+import DeleteConfirmationModal from "@/components/admin/DeleteConfirmationModal";
+
+// Teacher interface
+interface Teacher {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  avatar: string;
+  department: string;
+  specialization: string;
+  experience: string;
+  joinDate: string;
+  lastActive: string;
+  status: "Active" | "Pending" | "Inactive" | "Suspended";
+  courses: string[];
+  studentsCount: number;
+  rating: number;
+  officeHours: string;
+  location: string;
+  verified: boolean;
+}
 
 // Mock teachers data
-const teachersData = [
+const initialTeachersData: Teacher[] = [
   {
     id: 1,
     name: "Dr. Sarah Wilson",
@@ -142,46 +171,291 @@ const getStatusColor = (status: string) => {
   }
 };
 
+type SortField =
+  | "name"
+  | "email"
+  | "department"
+  | "specialization"
+  | "status"
+  | "studentsCount"
+  | "rating"
+  | "experience";
+type SortDirection = "asc" | "desc";
+
 export default function AdminTeachersPage() {
+  const { toast } = useToast();
+  const [teachers, setTeachers] = useState<Teacher[]>(initialTeachersData);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterDepartment, setFilterDepartment] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
+  const [sortField, setSortField] = useState<SortField>("name");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [isLoading, setIsLoading] = useState(false);
 
-  const filteredTeachers = teachersData.filter(teacher => {
-    const matchesSearch = teacher.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        teacher.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        teacher.specialization.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesDepartment = filterDepartment === "All" || teacher.department === filterDepartment;
-    const matchesStatus = filterStatus === "All" || teacher.status === filterStatus;
-    return matchesSearch && matchesDepartment && matchesStatus;
-  });
+  // Modal states
+  const [isTeacherFormOpen, setIsTeacherFormOpen] = useState(false);
+  const [isTeacherDetailsOpen, setIsTeacherDetailsOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
+  const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
 
-  const handleEditTeacher = (teacherId: number) => {
-    // Mock edit functionality
-    console.log("Edit teacher:", teacherId);
+  // Filter and sort teachers
+  const filteredAndSortedTeachers = useMemo(() => {
+    const filtered = teachers.filter((teacher) => {
+      const matchesSearch =
+        teacher.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        teacher.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        teacher.specialization
+          .toLowerCase()
+          .includes(searchTerm.toLowerCase()) ||
+        teacher.department.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesDepartment =
+        filterDepartment === "All" || teacher.department === filterDepartment;
+      const matchesStatus =
+        filterStatus === "All" || teacher.status === filterStatus;
+      return matchesSearch && matchesDepartment && matchesStatus;
+    });
+
+    // Sort teachers
+    filtered.sort((a, b) => {
+      let aValue: string | number;
+      let bValue: string | number;
+
+      switch (sortField) {
+        case "name":
+          aValue = a.name.toLowerCase();
+          bValue = b.name.toLowerCase();
+          break;
+        case "email":
+          aValue = a.email.toLowerCase();
+          bValue = b.email.toLowerCase();
+          break;
+        case "department":
+          aValue = a.department.toLowerCase();
+          bValue = b.department.toLowerCase();
+          break;
+        case "specialization":
+          aValue = a.specialization.toLowerCase();
+          bValue = b.specialization.toLowerCase();
+          break;
+        case "status":
+          aValue = a.status;
+          bValue = b.status;
+          break;
+        case "studentsCount":
+          aValue = a.studentsCount;
+          bValue = b.studentsCount;
+          break;
+        case "rating":
+          aValue = a.rating;
+          bValue = b.rating;
+          break;
+        case "experience":
+          aValue = parseInt(a.experience);
+          bValue = parseInt(b.experience);
+          break;
+        default:
+          aValue = a.name.toLowerCase();
+          bValue = b.name.toLowerCase();
+      }
+
+      if (aValue < bValue) return sortDirection === "asc" ? -1 : 1;
+      if (aValue > bValue) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return filtered;
+  }, [
+    teachers,
+    searchTerm,
+    filterDepartment,
+    filterStatus,
+    sortField,
+    sortDirection,
+  ]);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDirection("asc");
+    }
   };
 
-  const handleDeleteTeacher = (teacherId: number) => {
-    // Mock delete functionality
-    console.log("Delete teacher:", teacherId);
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) return <ArrowUpDown className="h-4 w-4" />;
+    return sortDirection === "asc" ? (
+      <ArrowUp className="h-4 w-4" />
+    ) : (
+      <ArrowDown className="h-4 w-4" />
+    );
   };
 
-  const handleToggleStatus = (teacherId: number, currentStatus: string) => {
-    // Mock toggle status functionality
-    console.log("Toggle status for teacher:", teacherId, "from", currentStatus);
+  const handleAddTeacher = () => {
+    setEditingTeacher(null);
+    setIsTeacherFormOpen(true);
   };
 
-  const departments = ["All", ...Array.from(new Set(teachersData.map(t => t.department)))];
+  const handleEditTeacher = (teacher: Teacher) => {
+    setEditingTeacher(teacher);
+    setIsTeacherFormOpen(true);
+  };
+
+  const handleViewTeacher = (teacher: Teacher) => {
+    setSelectedTeacher(teacher);
+    setIsTeacherDetailsOpen(true);
+  };
+
+  const handleDeleteTeacher = (teacher: Teacher) => {
+    setSelectedTeacher(teacher);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleToggleStatus = async (
+    teacherId: number,
+    currentStatus: string
+  ) => {
+    setIsLoading(true);
+    try {
+      // Simulate API call
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      setTeachers((prevTeachers) =>
+        prevTeachers.map((teacher) =>
+          teacher.id === teacherId
+            ? {
+                ...teacher,
+                status:
+                  currentStatus === "Active"
+                    ? "Inactive"
+                    : ("Active" as "Active" | "Inactive"),
+                lastActive: "Just now",
+              }
+            : teacher
+        )
+      );
+
+      toast({
+        title: "Status updated",
+        description: `Teacher status has been ${
+          currentStatus === "Active" ? "deactivated" : "activated"
+        }.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update teacher status",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSaveTeacher = async (
+    teacherData: Partial<Teacher> & { name: string }
+  ) => {
+    setIsLoading(true);
+    try {
+      // Simulate API call
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      if (editingTeacher) {
+        // Update existing teacher
+        setTeachers((prevTeachers) =>
+          prevTeachers.map((teacher) =>
+            teacher.id === editingTeacher.id
+              ? {
+                  ...teacher,
+                  ...teacherData,
+                  lastActive: "Just now",
+                }
+              : teacher
+          )
+        );
+      } else {
+        // Add new teacher
+        const newTeacher: Teacher = {
+          id: Math.max(...teachers.map((t) => t.id)) + 1,
+          name: teacherData.name,
+          email: teacherData.email ?? "",
+          phone: teacherData.phone ?? "",
+          avatar:
+            teacherData.avatar ??
+            teacherData.name
+              .split(" ")
+              .map((n: string) => n[0])
+              .join("")
+              .toUpperCase(),
+          department: teacherData.department ?? "General",
+          specialization: teacherData.specialization ?? "",
+          experience: teacherData.experience ?? "0 years",
+          joinDate: new Date().toISOString().split("T")[0],
+          lastActive: "Just now",
+          status: (teacherData.status as Teacher["status"]) ?? "Active",
+          courses: teacherData.courses ?? [],
+          studentsCount: teacherData.studentsCount ?? 0,
+          rating: teacherData.rating ?? 0,
+          officeHours: teacherData.officeHours ?? "",
+          location: teacherData.location ?? "",
+          verified: teacherData.verified ?? false,
+        };
+        setTeachers((prevTeachers) => [...prevTeachers, newTeacher]);
+      }
+    } catch (error) {
+      throw error; // Re-throw to be handled by the form
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!selectedTeacher) return;
+
+    setIsLoading(true);
+    try {
+      // Simulate API call
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      setTeachers((prevTeachers) =>
+        prevTeachers.filter((teacher) => teacher.id !== selectedTeacher.id)
+      );
+
+      toast({
+        title: "Teacher deleted",
+        description: `${selectedTeacher.name} has been removed from the system.`,
+      });
+
+      setIsDeleteModalOpen(false);
+      setSelectedTeacher(null);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete teacher",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const departments = [
+    "All",
+    ...Array.from(new Set(teachers.map((t) => t.department))),
+  ];
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className={cn(
-        "rounded-2xl p-6",
-        glassStyles.card,
-        "shadow-glass-sm",
-        animationClasses.fadeIn
-      )}>
+      <div
+        className={cn(
+          "rounded-2xl p-6",
+          glassStyles.card,
+          "shadow-glass-sm",
+          animationClasses.fadeIn
+        )}
+      >
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-foreground mb-2">
@@ -191,7 +465,11 @@ export default function AdminTeachersPage() {
               Manage teacher accounts, assignments, and performance.
             </p>
           </div>
-          <Button className="flex items-center gap-2">
+          <Button
+            className="flex items-center gap-2"
+            onClick={handleAddTeacher}
+            disabled={isLoading}
+          >
             <Plus className="h-4 w-4" />
             Add New Teacher
           </Button>
@@ -200,82 +478,105 @@ export default function AdminTeachersPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className={cn(
-          glassStyles.card,
-          glassStyles.cardHover,
-          "rounded-2xl shadow-glass-sm",
-          animationClasses.scaleIn
-        )}>
+        <Card
+          className={cn(
+            glassStyles.card,
+            glassStyles.cardHover,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
           <CardContent className="p-6">
             <div className="flex items-center gap-3">
               <div className="p-3 rounded-xl bg-blue-100">
                 <GraduationCap className="h-6 w-6 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Teachers</p>
-                <p className="text-2xl font-bold text-foreground">{teachersData.length}</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Total Teachers
+                </p>
+                <p className="text-2xl font-bold text-foreground">
+                  {teachers.length}
+                </p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className={cn(
-          glassStyles.card,
-          glassStyles.cardHover,
-          "rounded-2xl shadow-glass-sm",
-          animationClasses.scaleIn
-        )}>
+        <Card
+          className={cn(
+            glassStyles.card,
+            glassStyles.cardHover,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
           <CardContent className="p-6">
             <div className="flex items-center gap-3">
               <div className="p-3 rounded-xl bg-green-100">
                 <UserCheck className="h-6 w-6 text-green-600" />
               </div>
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Active Teachers</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Active Teachers
+                </p>
                 <p className="text-2xl font-bold text-foreground">
-                  {teachersData.filter(t => t.status === "Active").length}
+                  {teachers.filter((t) => t.status === "Active").length}
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className={cn(
-          glassStyles.card,
-          glassStyles.cardHover,
-          "rounded-2xl shadow-glass-sm",
-          animationClasses.scaleIn
-        )}>
+        <Card
+          className={cn(
+            glassStyles.card,
+            glassStyles.cardHover,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
           <CardContent className="p-6">
             <div className="flex items-center gap-3">
               <div className="p-3 rounded-xl bg-purple-100">
                 <Users className="h-6 w-6 text-purple-600" />
               </div>
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Students</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Total Students
+                </p>
                 <p className="text-2xl font-bold text-foreground">
-                  {teachersData.reduce((acc, t) => acc + t.studentsCount, 0)}
+                  {teachers.reduce((acc, t) => acc + t.studentsCount, 0)}
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className={cn(
-          glassStyles.card,
-          glassStyles.cardHover,
-          "rounded-2xl shadow-glass-sm",
-          animationClasses.scaleIn
-        )}>
+        <Card
+          className={cn(
+            glassStyles.card,
+            glassStyles.cardHover,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
           <CardContent className="p-6">
             <div className="flex items-center gap-3">
               <div className="p-3 rounded-xl bg-yellow-100">
                 <Star className="h-6 w-6 text-yellow-600" />
               </div>
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Avg Rating</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Avg Rating
+                </p>
                 <p className="text-2xl font-bold text-foreground">
-                  {(teachersData.filter(t => t.rating > 0).reduce((acc, t) => acc + t.rating, 0) / teachersData.filter(t => t.rating > 0).length).toFixed(1)}
+                  {(
+                    teachers
+                      .filter((t) => t.rating > 0)
+                      .reduce((acc, t) => acc + t.rating, 0) /
+                    teachers.filter((t) => t.rating > 0).length
+                  ).toFixed(1)}
                 </p>
               </div>
             </div>
@@ -284,11 +585,13 @@ export default function AdminTeachersPage() {
       </div>
 
       {/* Filters */}
-      <Card className={cn(
-        glassStyles.card,
-        "rounded-2xl shadow-glass-sm",
-        animationClasses.scaleIn
-      )}>
+      <Card
+        className={cn(
+          glassStyles.card,
+          "rounded-2xl shadow-glass-sm",
+          animationClasses.scaleIn
+        )}
+      >
         <CardContent className="p-6">
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1">
@@ -308,8 +611,10 @@ export default function AdminTeachersPage() {
                 onChange={(e) => setFilterDepartment(e.target.value)}
                 className="px-3 py-2 border border-border/50 rounded-md bg-background/50 text-sm"
               >
-                {departments.map(department => (
-                  <option key={department} value={department}>{department}</option>
+                {departments.map((department) => (
+                  <option key={department} value={department}>
+                    {department}
+                  </option>
                 ))}
               </select>
               <Button
@@ -339,16 +644,18 @@ export default function AdminTeachersPage() {
       </Card>
 
       {/* Teachers Table */}
-      <Card className={cn(
-        glassStyles.card,
-        glassStyles.cardHover,
-        "rounded-2xl shadow-glass-sm",
-        animationClasses.scaleIn
-      )}>
+      <Card
+        className={cn(
+          glassStyles.card,
+          glassStyles.cardHover,
+          "rounded-2xl shadow-glass-sm",
+          animationClasses.scaleIn
+        )}
+      >
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
             <GraduationCap className="h-5 w-5 text-primary" />
-            Teachers ({filteredTeachers.length})
+            Teachers ({filteredAndSortedTeachers.length})
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -356,18 +663,76 @@ export default function AdminTeachersPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border/50">
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Teacher</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Department</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Specialization</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Experience</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Students</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Rating</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Actions</th>
+                  <th
+                    className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                    onClick={() => handleSort("name")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Teacher
+                      {getSortIcon("name")}
+                    </div>
+                  </th>
+                  <th
+                    className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                    onClick={() => handleSort("department")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Department
+                      {getSortIcon("department")}
+                    </div>
+                  </th>
+                  <th
+                    className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                    onClick={() => handleSort("specialization")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Specialization
+                      {getSortIcon("specialization")}
+                    </div>
+                  </th>
+                  <th
+                    className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                    onClick={() => handleSort("experience")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Experience
+                      {getSortIcon("experience")}
+                    </div>
+                  </th>
+                  <th
+                    className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                    onClick={() => handleSort("studentsCount")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Students
+                      {getSortIcon("studentsCount")}
+                    </div>
+                  </th>
+                  <th
+                    className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                    onClick={() => handleSort("rating")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Rating
+                      {getSortIcon("rating")}
+                    </div>
+                  </th>
+                  <th
+                    className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                    onClick={() => handleSort("status")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Status
+                      {getSortIcon("status")}
+                    </div>
+                  </th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {filteredTeachers.map((teacher) => (
+                {filteredAndSortedTeachers.map((teacher) => (
                   <tr
                     key={teacher.id}
                     className="border-b border-border/30 hover:bg-muted/30 transition-colors duration-200"
@@ -375,7 +740,11 @@ export default function AdminTeachersPage() {
                     <td className="py-4 px-4">
                       <div className="flex items-center gap-3">
                         <Avatar className="h-12 w-12">
-                          <AvatarImage src={`/avatars/${teacher.name.toLowerCase().replace(' ', '-')}.jpg`} />
+                          <AvatarImage
+                            src={`/avatars/${teacher.name
+                              .toLowerCase()
+                              .replace(" ", "-")}.jpg`}
+                          />
                           <AvatarFallback className="text-sm">
                             {teacher.avatar}
                           </AvatarFallback>
@@ -387,8 +756,12 @@ export default function AdminTeachersPage() {
                               <Award className="h-4 w-4 text-green-600" />
                             )}
                           </div>
-                          <div className="text-sm text-muted-foreground">{teacher.email}</div>
-                          <div className="text-xs text-muted-foreground">{teacher.phone}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {teacher.email}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {teacher.phone}
+                          </div>
                           <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
                             <Clock className="h-3 w-3" />
                             <span>Last active: {teacher.lastActive}</span>
@@ -410,23 +783,32 @@ export default function AdminTeachersPage() {
                     <td className="py-4 px-4">
                       <div className="flex items-center gap-2">
                         <Users className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm text-foreground">{teacher.studentsCount}</span>
+                        <span className="text-sm text-foreground">
+                          {teacher.studentsCount}
+                        </span>
                       </div>
                     </td>
                     <td className="py-4 px-4">
                       {teacher.rating > 0 ? (
                         <div className="flex items-center gap-1">
                           <Star className="h-4 w-4 text-yellow-500" />
-                          <span className="text-sm text-foreground">{teacher.rating}</span>
+                          <span className="text-sm text-foreground">
+                            {teacher.rating}
+                          </span>
                         </div>
                       ) : (
-                        <span className="text-sm text-muted-foreground">No rating</span>
+                        <span className="text-sm text-muted-foreground">
+                          No rating
+                        </span>
                       )}
                     </td>
                     <td className="py-4 px-4">
-                      <Badge 
-                        variant="outline" 
-                        className={cn("text-sm", getStatusColor(teacher.status))}
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-sm",
+                          getStatusColor(teacher.status)
+                        )}
                       >
                         {teacher.status}
                       </Badge>
@@ -436,8 +818,9 @@ export default function AdminTeachersPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleEditTeacher(teacher.id)}
+                          onClick={() => handleViewTeacher(teacher)}
                           className="flex items-center gap-1"
+                          disabled={isLoading}
                         >
                           <Eye className="h-3 w-3" />
                           View
@@ -445,8 +828,9 @@ export default function AdminTeachersPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleEditTeacher(teacher.id)}
+                          onClick={() => handleEditTeacher(teacher)}
                           className="flex items-center gap-1"
+                          disabled={isLoading}
                         >
                           <Edit className="h-3 w-3" />
                           Edit
@@ -454,20 +838,32 @@ export default function AdminTeachersPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleToggleStatus(teacher.id, teacher.status)}
+                          onClick={() =>
+                            handleToggleStatus(teacher.id, teacher.status)
+                          }
                           className={cn(
                             "flex items-center gap-1",
-                            teacher.status === "Active" ? "text-red-600 hover:text-red-700" : "text-green-600 hover:text-green-700"
+                            teacher.status === "Active"
+                              ? "text-red-600 hover:text-red-700"
+                              : "text-green-600 hover:text-green-700"
                           )}
+                          disabled={isLoading}
                         >
-                          {teacher.status === "Active" ? <UserX className="h-3 w-3" /> : <UserCheck className="h-3 w-3" />}
+                          {isLoading ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : teacher.status === "Active" ? (
+                            <UserX className="h-3 w-3" />
+                          ) : (
+                            <UserCheck className="h-3 w-3" />
+                          )}
                           {teacher.status === "Active" ? "Suspend" : "Activate"}
                         </Button>
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleDeleteTeacher(teacher.id)}
+                          onClick={() => handleDeleteTeacher(teacher)}
                           className="text-red-600 hover:text-red-700 flex items-center gap-1"
+                          disabled={isLoading}
                         >
                           <Trash2 className="h-3 w-3" />
                           Delete
@@ -481,6 +877,44 @@ export default function AdminTeachersPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Modals */}
+      <TeacherForm
+        isOpen={isTeacherFormOpen}
+        onClose={() => {
+          setIsTeacherFormOpen(false);
+          setEditingTeacher(null);
+        }}
+        teacher={editingTeacher}
+        onSave={handleSaveTeacher}
+        isLoading={isLoading}
+      />
+
+      <TeacherDetailsModal
+        isOpen={isTeacherDetailsOpen}
+        onClose={() => {
+          setIsTeacherDetailsOpen(false);
+          setSelectedTeacher(null);
+        }}
+        teacher={selectedTeacher}
+        onEdit={(teacher) => {
+          setIsTeacherDetailsOpen(false);
+          setEditingTeacher(teacher);
+          setIsTeacherFormOpen(true);
+        }}
+      />
+
+      <DeleteConfirmationModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => {
+          setIsDeleteModalOpen(false);
+          setSelectedTeacher(null);
+        }}
+        onConfirm={handleConfirmDelete}
+        title="Delete Teacher"
+        description={`Are you sure you want to delete ${selectedTeacher?.name}? This action cannot be undone.`}
+        isLoading={isLoading}
+      />
     </div>
   );
 }
