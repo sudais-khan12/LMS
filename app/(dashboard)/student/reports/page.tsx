@@ -1,11 +1,20 @@
 "use client";
 
+import React, { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
+import { useToast } from "@/hooks/use-toast";
 import {
   BarChart3,
   Download,
@@ -17,43 +26,73 @@ import {
   Calendar as CalendarIcon,
 } from "lucide-react";
 import ReportChart from "@/components/ui/student/ReportChart";
-
-// Mock data for reports
-const courseProgressData = [
-  { course: "React Fundamentals", progress: 85, assignments: 8, completed: 7 },
-  { course: "JavaScript Advanced", progress: 92, assignments: 6, completed: 6 },
-  { course: "Node.js Backend", progress: 78, assignments: 10, completed: 8 },
-  { course: "Database Design", progress: 100, assignments: 5, completed: 5 },
-  { course: "UI/UX Design", progress: 65, assignments: 7, completed: 4 },
-];
-
-const monthlyPerformanceData = [
-  { month: "Jan", score: 85, assignments: 12 },
-  { month: "Feb", score: 92, assignments: 15 },
-  { month: "Mar", score: 88, assignments: 10 },
-  { month: "Apr", score: 95, assignments: 18 },
-  { month: "May", score: 90, assignments: 14 },
-  { month: "Jun", score: 94, assignments: 16 },
-];
-
-const gradeDistributionData = [
-  { grade: "A+", count: 8, percentage: 25 },
-  { grade: "A", count: 12, percentage: 37.5 },
-  { grade: "B+", count: 6, percentage: 18.75 },
-  { grade: "B", count: 4, percentage: 12.5 },
-  { grade: "C", count: 2, percentage: 6.25 },
-];
-
-const attendanceTrendData = [
-  { month: "Jan", attendance: 88 },
-  { month: "Feb", attendance: 94 },
-  { month: "Mar", attendance: 91 },
-  { month: "Apr", attendance: 89 },
-  { month: "May", attendance: 95 },
-  { month: "Jun", attendance: 92 },
-];
+import {
+  ReportData,
+  mockReportData,
+  reportCourses,
+  reportSemesters,
+  reportTypes,
+  calculateOverallStats,
+} from "@/data/mock/studentReports";
 
 export default function ReportsPage() {
+  const { toast } = useToast();
+  const [reportData, setReportData] = useState<ReportData>(mockReportData);
+  const [filterCourse, setFilterCourse] = useState("All");
+  const [filterSemester, setFilterSemester] = useState("All");
+  const [filterReportType, setFilterReportType] = useState("All");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  // Filter data based on selected filters
+  const filteredData = useMemo(() => {
+    const filtered = { ...reportData };
+
+    // Filter by course
+    if (filterCourse !== "All") {
+      filtered.courseProgress = filtered.courseProgress.filter(
+        (course) => course.course === filterCourse
+      );
+      filtered.assignmentCompletion = filtered.assignmentCompletion.filter(
+        (course) => course.course === filterCourse
+      );
+    }
+
+    // Filter by date range (simplified - in real app would filter actual dates)
+    if (dateFrom || dateTo) {
+      // This would filter based on actual date ranges in a real implementation
+      // For now, we'll just return the filtered data as is
+    }
+
+    return filtered;
+  }, [
+    reportData,
+    filterCourse,
+    filterSemester,
+    filterReportType,
+    dateFrom,
+    dateTo,
+  ]);
+
+  // Calculate overall statistics
+  const overallStats = useMemo(() => {
+    return calculateOverallStats(filteredData);
+  }, [filteredData]);
+
+  const handleExportPDF = () => {
+    toast({
+      title: "Export Successful",
+      description: "Your report has been exported as PDF successfully.",
+    });
+  };
+
+  const handleCustomRange = () => {
+    toast({
+      title: "Custom Range",
+      description: "Custom date range selector opened.",
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Section */}
@@ -75,11 +114,11 @@ export default function ReportsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={handleExportPDF}>
               <Download className="h-4 w-4 mr-2" />
               Export PDF
             </Button>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={handleCustomRange}>
               <Calendar className="h-4 w-4 mr-2" />
               Custom Range
             </Button>
@@ -114,6 +153,8 @@ export default function ReportsPage() {
               <Input
                 id="dateFrom"
                 type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
                 className="bg-background/50 border-border/50"
               />
             </div>
@@ -127,6 +168,8 @@ export default function ReportsPage() {
               <Input
                 id="dateTo"
                 type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
                 className="bg-background/50 border-border/50"
               />
             </div>
@@ -137,11 +180,18 @@ export default function ReportsPage() {
               >
                 Course
               </Label>
-              <Input
-                id="course"
-                placeholder="All Courses"
-                className="bg-background/50 border-border/50"
-              />
+              <Select value={filterCourse} onValueChange={setFilterCourse}>
+                <SelectTrigger className="bg-background/50 border-border/50">
+                  <SelectValue placeholder="All Courses" />
+                </SelectTrigger>
+                <SelectContent>
+                  {reportCourses.map((course) => (
+                    <SelectItem key={course} value={course}>
+                      {course}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label
@@ -150,11 +200,21 @@ export default function ReportsPage() {
               >
                 Report Type
               </Label>
-              <Input
-                id="reportType"
-                placeholder="All Reports"
-                className="bg-background/50 border-border/50"
-              />
+              <Select
+                value={filterReportType}
+                onValueChange={setFilterReportType}
+              >
+                <SelectTrigger className="bg-background/50 border-border/50">
+                  <SelectValue placeholder="All Reports" />
+                </SelectTrigger>
+                <SelectContent>
+                  {reportTypes.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardContent>
@@ -164,7 +224,7 @@ export default function ReportsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ReportChart
           title="Course Progress Overview"
-          data={courseProgressData}
+          data={filteredData.courseProgress}
           type="bar"
           dataKey="progress"
           xAxisKey="course"
@@ -172,7 +232,7 @@ export default function ReportsPage() {
         />
         <ReportChart
           title="Monthly Performance Trend"
-          data={monthlyPerformanceData}
+          data={filteredData.monthlyPerformance}
           type="line"
           dataKey="score"
           xAxisKey="month"
@@ -184,14 +244,14 @@ export default function ReportsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ReportChart
           title="Grade Distribution"
-          data={gradeDistributionData}
+          data={filteredData.gradeDistribution}
           type="pie"
           dataKey="count"
           colors={["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"]}
         />
         <ReportChart
           title="Attendance Trend"
-          data={attendanceTrendData}
+          data={filteredData.attendanceTrend}
           type="line"
           dataKey="attendance"
           xAxisKey="month"
@@ -218,7 +278,9 @@ export default function ReportsPage() {
                 <p className="text-sm font-medium text-muted-foreground">
                   Average Grade
                 </p>
-                <p className="text-xl font-bold text-foreground">A-</p>
+                <p className="text-xl font-bold text-foreground">
+                  {overallStats.averageGrade}%
+                </p>
               </div>
             </div>
           </CardContent>
@@ -241,7 +303,10 @@ export default function ReportsPage() {
                 <p className="text-sm font-medium text-muted-foreground">
                   Assignments Completed
                 </p>
-                <p className="text-xl font-bold text-foreground">32/35</p>
+                <p className="text-xl font-bold text-foreground">
+                  {overallStats.completedAssignments}/
+                  {overallStats.totalAssignments}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -264,7 +329,9 @@ export default function ReportsPage() {
                 <p className="text-sm font-medium text-muted-foreground">
                   Attendance Rate
                 </p>
-                <p className="text-xl font-bold text-foreground">94%</p>
+                <p className="text-xl font-bold text-foreground">
+                  {overallStats.averageAttendance}%
+                </p>
               </div>
             </div>
           </CardContent>
@@ -285,9 +352,11 @@ export default function ReportsPage() {
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Performance Trend
+                  Completion Rate
                 </p>
-                <p className="text-xl font-bold text-foreground">+8%</p>
+                <p className="text-xl font-bold text-foreground">
+                  {overallStats.completionRate}%
+                </p>
               </div>
             </div>
           </CardContent>
@@ -332,7 +401,7 @@ export default function ReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {courseProgressData.map((course, index) => (
+                {filteredData.courseProgress.map((course, index) => (
                   <tr
                     key={index}
                     className="border-b border-border/30 hover:bg-muted/30 transition-colors"
@@ -357,13 +426,7 @@ export default function ReportsPage() {
                       {course.completed}/{course.assignments}
                     </td>
                     <td className="py-3 px-4 font-medium text-foreground">
-                      {course.progress >= 90
-                        ? "A+"
-                        : course.progress >= 80
-                        ? "A"
-                        : course.progress >= 70
-                        ? "B+"
-                        : "B"}
+                      {course.averageGrade}%
                     </td>
                     <td className="py-3 px-4">
                       <span
