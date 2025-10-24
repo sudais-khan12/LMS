@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ReactNode } from "react";
 import Sidebar from "@/components/ui/Sidebar";
 import Navbar from "@/components/ui/Navbar";
+import { Toaster } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
@@ -44,9 +45,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             : "-translate-x-full lg:translate-x-0"
         )}
       >
-        <Sidebar 
-          isCollapsed={sidebarCollapsed && !mobileMenuOpen} 
-          onToggle={toggleSidebar} 
+        <Sidebar
+          isCollapsed={sidebarCollapsed && !mobileMenuOpen}
+          onToggle={toggleSidebar}
         />
       </div>
 
@@ -63,6 +64,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           <div className="w-full">{children}</div>
         </main>
       </div>
+
+      {/* Toast Notifications */}
+      <Toaster />
     </div>
   );
 }

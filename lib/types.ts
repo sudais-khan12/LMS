@@ -100,3 +100,57 @@ export interface AnimationClasses {
   scaleIn: string;
   hover: string;
 }
+
+// Admin Profile interface
+export interface AdminProfile {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  department: string;
+  role: string;
+  joinDate: string;
+  avatar: string;
+  bio: string;
+  location: string;
+  timezone: string;
+  officeHours: string;
+}
+
+// Platform Settings interface
+export interface PlatformSettings {
+  siteName: string;
+  siteDescription: string;
+  siteUrl: string;
+  contactEmail: string;
+  maxFileSize: string;
+  allowedFileTypes: string;
+  maintenanceMode: boolean;
+  registrationEnabled: boolean;
+  emailNotifications: boolean;
+  systemLogs: boolean;
+}
+
+// Notification Settings interface
+export interface NotificationSettings {
+  emailNotifications: boolean;
+  pushNotifications: boolean;
+  systemAlerts: boolean;
+  userRegistration: boolean;
+  courseUpdates: boolean;
+  maintenanceAlerts: boolean;
+  securityAlerts: boolean;
+  performanceAlerts: boolean;
+}
+
+// Password Form interface
+export interface PasswordForm {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
+// Form Validation Errors interface
+export interface FormErrors {
+  [key: string]: string | undefined;
+}
