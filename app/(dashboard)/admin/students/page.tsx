@@ -6,7 +6,12 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
 import { useToast } from "@/hooks/use-toast";
-import { Student, StudentFilters, SortState, StudentFormData } from "@/types/student";
+import {
+  Student,
+  StudentFilters,
+  SortState,
+  StudentFormData,
+} from "@/types/student";
 import { mockStudents, availableCourses } from "@/data/mock/adminStudents";
 import { useSearchFilter } from "@/lib/hooks/useSearchFilter";
 import { usePagination } from "@/lib/hooks/usePagination";
@@ -79,7 +84,8 @@ export default function AdminStudentsPage() {
   const handleSort = (field: keyof Student) => {
     setSortState((prev) => ({
       field,
-      direction: prev.field === field && prev.direction === "asc" ? "desc" : "asc",
+      direction:
+        prev.field === field && prev.direction === "asc" ? "desc" : "asc",
     }));
   };
 
@@ -119,7 +125,10 @@ export default function AdminStudentsPage() {
     setIsDeleteModalOpen(true);
   };
 
-  const handleToggleStatus = async (studentId: number, currentStatus: string) => {
+  const handleToggleStatus = async (
+    studentId: number,
+    currentStatus: string
+  ) => {
     setIsLoading(true);
     try {
       // Simulate API call
@@ -201,7 +210,9 @@ export default function AdminStudentsPage() {
           grade: "N/A",
           gpa: 0,
           verified: false,
-          studentId: `STU${String(Math.max(...students.map((s) => s.id)) + 1).padStart(3, "0")}`,
+          studentId: `STU${String(
+            Math.max(...students.map((s) => s.id)) + 1
+          ).padStart(3, "0")}`,
         };
         setStudents((prevStudents) => [...prevStudents, newStudent]);
       }
@@ -280,7 +291,11 @@ export default function AdminStudentsPage() {
       setStudents((prevStudents) =>
         prevStudents.map((student) =>
           studentIds.includes(student.id)
-            ? { ...student, status: "Inactive" as const, lastActive: "Just now" }
+            ? {
+                ...student,
+                status: "Inactive" as const,
+                lastActive: "Just now",
+              }
             : student
         )
       );
@@ -342,9 +357,14 @@ export default function AdminStudentsPage() {
   // Statistics
   const stats = useMemo(() => {
     const activeStudents = students.filter((s) => s.status === "Active").length;
-    const atRiskStudents = students.filter((s) => s.status === "At Risk").length;
-    const topPerformers = students.filter((s) => s.grade.startsWith("A")).length;
-    const avgGPA = students.reduce((acc, s) => acc + s.gpa, 0) / students.length;
+    const atRiskStudents = students.filter(
+      (s) => s.status === "At Risk"
+    ).length;
+    const topPerformers = students.filter((s) =>
+      s.grade.startsWith("A")
+    ).length;
+    const avgGPA =
+      students.reduce((acc, s) => acc + s.gpa, 0) / students.length;
 
     return {
       total: students.length,
@@ -372,7 +392,8 @@ export default function AdminStudentsPage() {
               Student Management 🎓
             </h1>
             <p className="text-muted-foreground">
-              Manage student records, academic performance, and enrollment status.
+              Manage student records, academic performance, and enrollment
+              status.
             </p>
           </div>
           <Button

@@ -1,0 +1,87 @@
+import { AttendanceReportData } from "@/types/report";
+
+export const mockAttendanceData: AttendanceReportData = {
+  trendData: [
+    { month: "Jan", attendance: 88, students: 1200 },
+    { month: "Feb", attendance: 92, students: 1250 },
+    { month: "Mar", attendance: 89, students: 1300 },
+    { month: "Apr", attendance: 94, students: 1350 },
+    { month: "May", attendance: 96, students: 1400 },
+    { month: "Jun", attendance: 94, students: 1450 },
+    { month: "Jul", attendance: 97, students: 1500 },
+    { month: "Aug", attendance: 95, students: 1550 },
+    { month: "Sep", attendance: 93, students: 1600 },
+    { month: "Oct", attendance: 96, students: 1650 },
+    { month: "Nov", attendance: 98, students: 1700 },
+    { month: "Dec", attendance: 95, students: 1750 },
+  ],
+  courseStats: [
+    {
+      courseId: "react-fundamentals",
+      courseName: "React Fundamentals",
+      totalStudents: 450,
+      averageAttendance: 94,
+      attendanceTrend: "up",
+      lowAttendanceAlerts: 12,
+    },
+    {
+      courseId: "javascript-advanced",
+      courseName: "JavaScript Advanced",
+      totalStudents: 320,
+      averageAttendance: 91,
+      attendanceTrend: "stable",
+      lowAttendanceAlerts: 8,
+    },
+    {
+      courseId: "nodejs-backend",
+      courseName: "Node.js Backend",
+      totalStudents: 280,
+      averageAttendance: 89,
+      attendanceTrend: "down",
+      lowAttendanceAlerts: 15,
+    },
+    {
+      courseId: "database-design",
+      courseName: "Database Design",
+      totalStudents: 200,
+      averageAttendance: 87,
+      attendanceTrend: "down",
+      lowAttendanceAlerts: 20,
+    },
+    {
+      courseId: "ui-ux-design",
+      courseName: "UI/UX Design",
+      totalStudents: 180,
+      averageAttendance: 96,
+      attendanceTrend: "up",
+      lowAttendanceAlerts: 3,
+    },
+    {
+      courseId: "mobile-development",
+      courseName: "Mobile Development",
+      totalStudents: 150,
+      averageAttendance: 92,
+      attendanceTrend: "stable",
+      lowAttendanceAlerts: 6,
+    },
+  ],
+  kpis: {
+    averageAttendance: 94.2,
+    topCourse: "UI/UX Design",
+    lowAttendanceAlerts: 64,
+    totalStudents: 1580,
+  },
+};
+
+export const availableCourses = [
+  "React Fundamentals",
+  "JavaScript Advanced",
+  "Node.js Backend",
+  "Database Design",
+  "UI/UX Design",
+  "Mobile Development",
+  "System Design",
+  "Data Science",
+  "Machine Learning",
+  "DevOps",
+];
