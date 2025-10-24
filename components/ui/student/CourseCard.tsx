@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -15,25 +16,33 @@ interface CourseCardProps {
   completedLessons: number;
   duration: string;
   thumbnail?: string;
+  onContinueLearning?: () => void;
+  onReviewCourse?: () => void;
+  isLoading?: boolean;
 }
 
-export default function CourseCard({ 
-  title, 
-  instructor, 
-  progress, 
-  totalLessons, 
-  completedLessons, 
+export default function CourseCard({
+  title,
+  instructor,
+  progress,
+  totalLessons,
+  completedLessons,
   duration,
-  thumbnail 
+  thumbnail,
+  onContinueLearning,
+  onReviewCourse,
+  isLoading = false,
 }: CourseCardProps) {
   return (
-    <Card className={cn(
-      glassStyles.card,
-      glassStyles.cardHover,
-      "rounded-2xl shadow-glass-sm",
-      animationClasses.scaleIn,
-      "group"
-    )}>
+    <Card
+      className={cn(
+        glassStyles.card,
+        glassStyles.cardHover,
+        "rounded-2xl shadow-glass-sm",
+        animationClasses.scaleIn,
+        "group"
+      )}
+    >
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
@@ -52,7 +61,7 @@ export default function CourseCard({
           )}
         </div>
       </CardHeader>
-      
+
       <CardContent className="space-y-4">
         {/* Progress Section */}
         <div className="space-y-2">
@@ -62,7 +71,9 @@ export default function CourseCard({
           </div>
           <Progress value={progress} className="h-2" />
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{completedLessons} of {totalLessons} lessons completed</span>
+            <span>
+              {completedLessons} of {totalLessons} lessons completed
+            </span>
             <div className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
               <span>{duration}</span>
@@ -71,9 +82,11 @@ export default function CourseCard({
         </div>
 
         {/* Action Button */}
-        <Button 
+        <Button
           className="w-full group-hover:bg-primary/90 transition-colors duration-200"
           size="sm"
+          onClick={progress === 100 ? onReviewCourse : onContinueLearning}
+          disabled={isLoading}
         >
           {progress === 100 ? "Review Course" : "Continue Learning"}
         </Button>
