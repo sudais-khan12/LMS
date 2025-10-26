@@ -1,6 +1,18 @@
 import { useMemo } from "react";
-import { PaginationState } from "@/types/student";
+import { PaginationState } from "@/types";
 
+/**
+ * Generic pagination hook
+ * @param items - Array of items to paginate
+ * @param page - Current page number (1-indexed)
+ * @param pageSize - Number of items per page
+ * @returns Paginated items and pagination state
+ *
+ * @example
+ * ```tsx
+ * const { paginatedItems, pagination } = usePagination(users, 1, 10);
+ * ```
+ */
 export function usePagination<T>(
   items: T[],
   page: number,

@@ -14,6 +14,8 @@ import {
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
 import { useToast } from "@/hooks/use-toast";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
+import type { Course } from "@/types";
 import {
   Search,
   Filter,
@@ -53,13 +55,22 @@ export default function MyCoursesPage() {
   const [isCourseDetailsModalOpen, setIsCourseDetailsModalOpen] =
     useState(false);
 
-  // Filter and sort courses
+  // Debounce search term for better performance
+  const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
+
+  // Filter and sort courses with debounced search
   const filteredAndSortedCourses = useMemo(() => {
     const filtered = courses.filter((course) => {
       const matchesSearch =
-        course.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        course.instructor.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        course.description.toLowerCase().includes(searchTerm.toLowerCase());
+        course.title
+          .toLowerCase()
+          .includes(debouncedSearchTerm.toLowerCase()) ||
+        course.instructor
+          .toLowerCase()
+          .includes(debouncedSearchTerm.toLowerCase()) ||
+        course.description
+          .toLowerCase()
+          .includes(debouncedSearchTerm.toLowerCase());
       const matchesStatus =
         filterStatus === "All" || course.status === filterStatus;
       const matchesCategory =
@@ -106,7 +117,7 @@ export default function MyCoursesPage() {
     return filtered;
   }, [
     courses,
-    searchTerm,
+    debouncedSearchTerm,
     filterStatus,
     filterCategory,
     sortField,
