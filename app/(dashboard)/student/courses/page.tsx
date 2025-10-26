@@ -14,8 +14,6 @@ import {
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
 import { useToast } from "@/hooks/use-toast";
-import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
-import type { Course } from "@/types";
 import {
   Search,
   Filter,
@@ -31,10 +29,10 @@ import {
   StudentCourse,
   mockStudentCourses,
   courseCategories,
-} from "@/data/mock/studentCourses";
-import CourseCard from "@/components/student/CourseCard";
-import CourseEnrollmentModal from "@/components/student/CourseEnrollmentModal";
-import CourseDetailsModal from "@/components/student/CourseDetailsModal";
+  CourseCard,
+  CourseEnrollmentModal,
+  CourseDetailsModal,
+} from "@/features/courses";
 
 type SortField = "title" | "instructor" | "progress" | "status" | "category";
 type SortDirection = "asc" | "desc";
@@ -55,22 +53,13 @@ export default function MyCoursesPage() {
   const [isCourseDetailsModalOpen, setIsCourseDetailsModalOpen] =
     useState(false);
 
-  // Debounce search term for better performance
-  const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
-
-  // Filter and sort courses with debounced search
+  // Filter and sort courses
   const filteredAndSortedCourses = useMemo(() => {
     const filtered = courses.filter((course) => {
       const matchesSearch =
-        course.title
-          .toLowerCase()
-          .includes(debouncedSearchTerm.toLowerCase()) ||
-        course.instructor
-          .toLowerCase()
-          .includes(debouncedSearchTerm.toLowerCase()) ||
-        course.description
-          .toLowerCase()
-          .includes(debouncedSearchTerm.toLowerCase());
+        course.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        course.instructor.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        course.description.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesStatus =
         filterStatus === "All" || course.status === filterStatus;
       const matchesCategory =
@@ -117,7 +106,7 @@ export default function MyCoursesPage() {
     return filtered;
   }, [
     courses,
-    debouncedSearchTerm,
+    searchTerm,
     filterStatus,
     filterCategory,
     sortField,
@@ -329,7 +318,7 @@ export default function MyCoursesPage() {
                 </SelectContent>
               </Select>
               <Select value={filterCategory} onValueChange={setFilterCategory}>
-                <SelectTrigger className="w-[160px] bg-background/50 border-border/50">
+                <SelectTrigger className="w-40 bg-background/50 border-border/50">
                   <SelectValue placeholder="Category" />
                 </SelectTrigger>
                 <SelectContent>

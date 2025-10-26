@@ -17,138 +17,15 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import AttendanceCalendar from "@/components/student/AttendanceCalendar";
+import {
+  AttendanceCalendar,
+  mockAttendanceData,
+  calculateAttendanceSummary,
+} from "@/features/attendance";
+import type { AttendanceRecord } from "@/features/attendance";
 
-interface AttendanceRecord {
-  date: string;
-  status: "present" | "absent" | "late" | "excused";
-  course: string;
-  time: string;
-}
-
-// Mock attendance data - expanded dataset
-const allAttendanceData: AttendanceRecord[] = [
-  {
-    date: "2024-02-20",
-    status: "present",
-    course: "React Fundamentals",
-    time: "10:00 AM",
-  },
-  {
-    date: "2024-02-19",
-    status: "present",
-    course: "JavaScript Advanced",
-    time: "2:00 PM",
-  },
-  {
-    date: "2024-02-18",
-    status: "late",
-    course: "Node.js Backend",
-    time: "11:00 AM",
-  },
-  {
-    date: "2024-02-17",
-    status: "present",
-    course: "Database Design",
-    time: "9:00 AM",
-  },
-  {
-    date: "2024-02-16",
-    status: "absent",
-    course: "UI/UX Design",
-    time: "3:00 PM",
-  },
-  {
-    date: "2024-02-15",
-    status: "present",
-    course: "React Fundamentals",
-    time: "10:00 AM",
-  },
-  {
-    date: "2024-02-14",
-    status: "present",
-    course: "JavaScript Advanced",
-    time: "2:00 PM",
-  },
-  {
-    date: "2024-02-13",
-    status: "late",
-    course: "Node.js Backend",
-    time: "11:00 AM",
-  },
-  {
-    date: "2024-02-12",
-    status: "present",
-    course: "Database Design",
-    time: "9:00 AM",
-  },
-  {
-    date: "2024-02-11",
-    status: "absent",
-    course: "UI/UX Design",
-    time: "3:00 PM",
-  },
-  {
-    date: "2024-02-10",
-    status: "present",
-    course: "Python for Data Science",
-    time: "1:00 PM",
-  },
-  {
-    date: "2024-02-09",
-    status: "present",
-    course: "React Fundamentals",
-    time: "10:00 AM",
-  },
-  {
-    date: "2024-02-08",
-    status: "excused",
-    course: "JavaScript Advanced",
-    time: "2:00 PM",
-  },
-  {
-    date: "2024-02-07",
-    status: "present",
-    course: "Node.js Backend",
-    time: "11:00 AM",
-  },
-  {
-    date: "2024-02-06",
-    status: "present",
-    course: "Database Design",
-    time: "9:00 AM",
-  },
-  {
-    date: "2024-02-05",
-    status: "present",
-    course: "React Fundamentals",
-    time: "10:00 AM",
-  },
-  {
-    date: "2024-02-04",
-    status: "late",
-    course: "JavaScript Advanced",
-    time: "2:00 PM",
-  },
-  {
-    date: "2024-02-03",
-    status: "present",
-    course: "UI/UX Design",
-    time: "3:00 PM",
-  },
-  {
-    date: "2024-02-02",
-    status: "present",
-    course: "Python for Data Science",
-    time: "1:00 PM",
-  },
-  {
-    date: "2024-02-01",
-    status: "present",
-    course: "React Fundamentals",
-    time: "10:00 AM",
-  },
-];
+// Use mock data from feature module
+const allAttendanceData: AttendanceRecord[] = mockAttendanceData;
 
 // Get unique courses for filter
 const uniqueCourses = [
@@ -181,22 +58,11 @@ export default function AttendancePage() {
     });
   }, [dateFrom, dateTo, selectedCourse]);
 
-  // Calculate summary from filtered data
-  const summary = useMemo(() => {
-    const presentDays = filteredData.filter(
-      (a) => a.status === "present"
-    ).length;
-    const totalDays = filteredData.length;
-    return {
-      totalDays,
-      presentDays,
-      absentDays: filteredData.filter((a) => a.status === "absent").length,
-      lateDays: filteredData.filter((a) => a.status === "late").length,
-      excusedDays: filteredData.filter((a) => a.status === "excused").length,
-      percentage:
-        totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0,
-    };
-  }, [filteredData]);
+  // Calculate summary from filtered data using helper from feature module
+  const summary = useMemo(
+    () => calculateAttendanceSummary(filteredData),
+    [filteredData]
+  );
 
   // Generate chart data from filtered results
   const chartData = useMemo(() => {
