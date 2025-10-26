@@ -7,13 +7,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
-import { 
-  User, 
-  Mail, 
-  Phone, 
-  MapPin, 
+import {
+  User,
+  Mail,
+  Phone,
+  MapPin,
   Calendar,
   Settings,
   Bell,
@@ -23,11 +25,11 @@ import {
   Camera,
   Edit,
   Check,
-  X
+  X,
 } from "lucide-react";
 
 // Mock teacher profile data
-const teacherProfile = {
+const initialTeacherProfile = {
   id: 1,
   name: "Dr. Sarah Johnson",
   email: "sarah.johnson@lms.com",
@@ -47,13 +49,16 @@ const teacherProfile = {
 };
 
 export default function TeacherSettingsPage() {
+  const { toast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
-  const [profile, setProfile] = useState(teacherProfile);
+  const [isLoading, setIsLoading] = useState(false);
+  const [profile, setProfile] = useState(initialTeacherProfile);
   const [notifications, setNotifications] = useState({
     emailNotifications: true,
     pushNotifications: true,
     assignmentReminders: true,
     gradeNotifications: true,
+    attendanceAlerts: true,
     courseUpdates: false,
     systemAlerts: true,
   });
@@ -64,32 +69,143 @@ export default function TeacherSettingsPage() {
     confirmPassword: "",
   });
 
-  const handleSaveProfile = () => {
-    // Mock save functionality
-    setIsEditing(false);
+  const handleSaveProfile = async () => {
+    if (!profile.name || !profile.email) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Simulate API call
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      toast({
+        title: "Success",
+        description: "Profile updated successfully",
+      });
+      setIsEditing(false);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update profile. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handlePasswordChange = () => {
-    // Mock password change functionality
-    setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const handlePasswordChange = async () => {
+    if (
+      !passwordForm.currentPassword ||
+      !passwordForm.newPassword ||
+      !passwordForm.confirmPassword
+    ) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all password fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      toast({
+        title: "Validation Error",
+        description: "New passwords do not match",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (passwordForm.newPassword.length < 6) {
+      toast({
+        title: "Validation Error",
+        description: "Password must be at least 6 characters",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Simulate API call
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      toast({
+        title: "Success",
+        description: "Password updated successfully",
+      });
+      setPasswordForm({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update password. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleNotificationToggle = (key: keyof typeof notifications) => {
-    setNotifications(prev => ({
+  const handleNotificationToggle = async (key: keyof typeof notifications) => {
+    const newValue = !notifications[key];
+    setNotifications((prev) => ({
       ...prev,
-      [key]: !prev[key]
+      [key]: newValue,
     }));
+
+    try {
+      // Simulate API call
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      toast({
+        title: "Success",
+        description: `Notification setting updated`,
+      });
+    } catch (error) {
+      // Revert on error
+      setNotifications((prev) => ({
+        ...prev,
+        [key]: !newValue,
+      }));
+
+      toast({
+        title: "Error",
+        description: "Failed to update notification setting",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleThemeChange = (newTheme: string) => {
+    setTheme(newTheme);
+    toast({
+      title: "Theme updated",
+      description: `Switched to ${newTheme} mode`,
+    });
   };
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className={cn(
-        "rounded-2xl p-6",
-        glassStyles.card,
-        "shadow-glass-sm",
-        animationClasses.fadeIn
-      )}>
+      <div
+        className={cn(
+          "rounded-2xl p-6",
+          glassStyles.card,
+          "shadow-glass-sm",
+          animationClasses.fadeIn
+        )}
+      >
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-foreground mb-2">
@@ -106,12 +222,14 @@ export default function TeacherSettingsPage() {
         {/* Profile Section */}
         <div className="lg:col-span-2 space-y-6">
           {/* Profile Information */}
-          <Card className={cn(
-            glassStyles.card,
-            glassStyles.cardHover,
-            "rounded-2xl shadow-glass-sm",
-            animationClasses.scaleIn
-          )}>
+          <Card
+            className={cn(
+              glassStyles.card,
+              glassStyles.cardHover,
+              "rounded-2xl shadow-glass-sm",
+              animationClasses.scaleIn
+            )}
+          >
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -124,7 +242,11 @@ export default function TeacherSettingsPage() {
                   onClick={() => setIsEditing(!isEditing)}
                   className="flex items-center gap-2"
                 >
-                  {isEditing ? <X className="h-4 w-4" /> : <Edit className="h-4 w-4" />}
+                  {isEditing ? (
+                    <X className="h-4 w-4" />
+                  ) : (
+                    <Edit className="h-4 w-4" />
+                  )}
                   {isEditing ? "Cancel" : "Edit"}
                 </Button>
               </div>
@@ -139,7 +261,11 @@ export default function TeacherSettingsPage() {
                   </AvatarFallback>
                 </Avatar>
                 <div className="space-y-2">
-                  <Button variant="outline" size="sm" className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
                     <Camera className="h-4 w-4" />
                     Change Photo
                   </Button>
@@ -156,7 +282,9 @@ export default function TeacherSettingsPage() {
                   <Input
                     id="name"
                     value={profile.name}
-                    onChange={(e) => setProfile({...profile, name: e.target.value})}
+                    onChange={(e) =>
+                      setProfile({ ...profile, name: e.target.value })
+                    }
                     disabled={!isEditing}
                     className="bg-background/50 border-border/50"
                   />
@@ -166,7 +294,9 @@ export default function TeacherSettingsPage() {
                   <Input
                     id="email"
                     value={profile.email}
-                    onChange={(e) => setProfile({...profile, email: e.target.value})}
+                    onChange={(e) =>
+                      setProfile({ ...profile, email: e.target.value })
+                    }
                     disabled={!isEditing}
                     className="bg-background/50 border-border/50"
                   />
@@ -176,7 +306,9 @@ export default function TeacherSettingsPage() {
                   <Input
                     id="phone"
                     value={profile.phone}
-                    onChange={(e) => setProfile({...profile, phone: e.target.value})}
+                    onChange={(e) =>
+                      setProfile({ ...profile, phone: e.target.value })
+                    }
                     disabled={!isEditing}
                     className="bg-background/50 border-border/50"
                   />
@@ -186,7 +318,9 @@ export default function TeacherSettingsPage() {
                   <Input
                     id="department"
                     value={profile.department}
-                    onChange={(e) => setProfile({...profile, department: e.target.value})}
+                    onChange={(e) =>
+                      setProfile({ ...profile, department: e.target.value })
+                    }
                     disabled={!isEditing}
                     className="bg-background/50 border-border/50"
                   />
@@ -196,7 +330,9 @@ export default function TeacherSettingsPage() {
                   <Input
                     id="specialization"
                     value={profile.specialization}
-                    onChange={(e) => setProfile({...profile, specialization: e.target.value})}
+                    onChange={(e) =>
+                      setProfile({ ...profile, specialization: e.target.value })
+                    }
                     disabled={!isEditing}
                     className="bg-background/50 border-border/50"
                   />
@@ -206,7 +342,9 @@ export default function TeacherSettingsPage() {
                   <Input
                     id="location"
                     value={profile.location}
-                    onChange={(e) => setProfile({...profile, location: e.target.value})}
+                    onChange={(e) =>
+                      setProfile({ ...profile, location: e.target.value })
+                    }
                     disabled={!isEditing}
                     className="bg-background/50 border-border/50"
                   />
@@ -218,7 +356,9 @@ export default function TeacherSettingsPage() {
                 <textarea
                   id="bio"
                   value={profile.bio}
-                  onChange={(e) => setProfile({...profile, bio: e.target.value})}
+                  onChange={(e) =>
+                    setProfile({ ...profile, bio: e.target.value })
+                  }
                   disabled={!isEditing}
                   rows={3}
                   className="w-full px-3 py-2 border border-border/50 rounded-md bg-background/50 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
@@ -227,12 +367,25 @@ export default function TeacherSettingsPage() {
 
               {isEditing && (
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setIsEditing(false)}>
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsEditing(false)}
+                    disabled={isLoading}
+                  >
                     Cancel
                   </Button>
-                  <Button onClick={handleSaveProfile} className="flex items-center gap-2">
-                    <Save className="h-4 w-4" />
-                    Save Changes
+                  <Button
+                    onClick={handleSaveProfile}
+                    className="flex items-center gap-2"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? (
+                      "Saving..."
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4" /> Save Changes
+                      </>
+                    )}
                   </Button>
                 </div>
               )}
@@ -240,12 +393,14 @@ export default function TeacherSettingsPage() {
           </Card>
 
           {/* Password Security */}
-          <Card className={cn(
-            glassStyles.card,
-            glassStyles.cardHover,
-            "rounded-2xl shadow-glass-sm",
-            animationClasses.scaleIn
-          )}>
+          <Card
+            className={cn(
+              glassStyles.card,
+              glassStyles.cardHover,
+              "rounded-2xl shadow-glass-sm",
+              animationClasses.scaleIn
+            )}
+          >
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
                 <Shield className="h-5 w-5 text-primary" />
@@ -259,7 +414,12 @@ export default function TeacherSettingsPage() {
                   id="currentPassword"
                   type="password"
                   value={passwordForm.currentPassword}
-                  onChange={(e) => setPasswordForm({...passwordForm, currentPassword: e.target.value})}
+                  onChange={(e) =>
+                    setPasswordForm({
+                      ...passwordForm,
+                      currentPassword: e.target.value,
+                    })
+                  }
                   className="bg-background/50 border-border/50"
                 />
               </div>
@@ -269,7 +429,12 @@ export default function TeacherSettingsPage() {
                   id="newPassword"
                   type="password"
                   value={passwordForm.newPassword}
-                  onChange={(e) => setPasswordForm({...passwordForm, newPassword: e.target.value})}
+                  onChange={(e) =>
+                    setPasswordForm({
+                      ...passwordForm,
+                      newPassword: e.target.value,
+                    })
+                  }
                   className="bg-background/50 border-border/50"
                 />
               </div>
@@ -279,13 +444,27 @@ export default function TeacherSettingsPage() {
                   id="confirmPassword"
                   type="password"
                   value={passwordForm.confirmPassword}
-                  onChange={(e) => setPasswordForm({...passwordForm, confirmPassword: e.target.value})}
+                  onChange={(e) =>
+                    setPasswordForm({
+                      ...passwordForm,
+                      confirmPassword: e.target.value,
+                    })
+                  }
                   className="bg-background/50 border-border/50"
                 />
               </div>
-              <Button onClick={handlePasswordChange} className="flex items-center gap-2">
-                <Shield className="h-4 w-4" />
-                Update Password
+              <Button
+                onClick={handlePasswordChange}
+                className="flex items-center gap-2"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  "Updating..."
+                ) : (
+                  <>
+                    <Shield className="h-4 w-4" /> Update Password
+                  </>
+                )}
               </Button>
             </CardContent>
           </Card>
@@ -294,12 +473,14 @@ export default function TeacherSettingsPage() {
         {/* Sidebar */}
         <div className="space-y-6">
           {/* Quick Stats */}
-          <Card className={cn(
-            glassStyles.card,
-            glassStyles.cardHover,
-            "rounded-2xl shadow-glass-sm",
-            animationClasses.scaleIn
-          )}>
+          <Card
+            className={cn(
+              glassStyles.card,
+              glassStyles.cardHover,
+              "rounded-2xl shadow-glass-sm",
+              animationClasses.scaleIn
+            )}
+          >
             <CardHeader>
               <CardTitle className="text-lg font-semibold text-foreground">
                 Quick Stats
@@ -307,26 +488,40 @@ export default function TeacherSettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Experience</span>
-                <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-200">
+                <span className="text-sm text-muted-foreground">
+                  Experience
+                </span>
+                <Badge
+                  variant="outline"
+                  className="bg-blue-100 text-blue-800 border-blue-200"
+                >
                   {profile.experience}
                 </Badge>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Students</span>
-                <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
+                <Badge
+                  variant="outline"
+                  className="bg-green-100 text-green-800 border-green-200"
+                >
                   {profile.studentsCount}
                 </Badge>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Rating</span>
-                <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-200">
+                <Badge
+                  variant="outline"
+                  className="bg-yellow-100 text-yellow-800 border-yellow-200"
+                >
                   ⭐ {profile.rating}
                 </Badge>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Courses</span>
-                <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-200">
+                <Badge
+                  variant="outline"
+                  className="bg-purple-100 text-purple-800 border-purple-200"
+                >
                   {profile.courses.length}
                 </Badge>
               </div>
@@ -334,12 +529,14 @@ export default function TeacherSettingsPage() {
           </Card>
 
           {/* Theme Preferences */}
-          <Card className={cn(
-            glassStyles.card,
-            glassStyles.cardHover,
-            "rounded-2xl shadow-glass-sm",
-            animationClasses.scaleIn
-          )}>
+          <Card
+            className={cn(
+              glassStyles.card,
+              glassStyles.cardHover,
+              "rounded-2xl shadow-glass-sm",
+              animationClasses.scaleIn
+            )}
+          >
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
                 <Palette className="h-5 w-5 text-primary" />
@@ -353,7 +550,7 @@ export default function TeacherSettingsPage() {
                   <Button
                     variant={theme === "light" ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setTheme("light")}
+                    onClick={() => handleThemeChange("light")}
                     className="flex-1"
                   >
                     Light
@@ -361,7 +558,7 @@ export default function TeacherSettingsPage() {
                   <Button
                     variant={theme === "dark" ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setTheme("dark")}
+                    onClick={() => handleThemeChange("dark")}
                     className="flex-1"
                   >
                     Dark
@@ -369,7 +566,7 @@ export default function TeacherSettingsPage() {
                   <Button
                     variant={theme === "system" ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setTheme("system")}
+                    onClick={() => handleThemeChange("system")}
                     className="flex-1"
                   >
                     System
@@ -380,12 +577,14 @@ export default function TeacherSettingsPage() {
           </Card>
 
           {/* Notification Settings */}
-          <Card className={cn(
-            glassStyles.card,
-            glassStyles.cardHover,
-            "rounded-2xl shadow-glass-sm",
-            animationClasses.scaleIn
-          )}>
+          <Card
+            className={cn(
+              glassStyles.card,
+              glassStyles.cardHover,
+              "rounded-2xl shadow-glass-sm",
+              animationClasses.scaleIn
+            )}
+          >
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
                 <Bell className="h-5 w-5 text-primary" />
@@ -395,29 +594,36 @@ export default function TeacherSettingsPage() {
             <CardContent className="space-y-4">
               {Object.entries(notifications).map(([key, value]) => (
                 <div key={key} className="flex items-center justify-between">
-                  <Label htmlFor={key} className="text-sm">
-                    {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
+                  <Label className="text-sm cursor-pointer">
+                    {key
+                      .replace(/([A-Z])/g, " $1")
+                      .replace(/^./, (str) => str.toUpperCase())
+                      .replace(/notifications/gi, "")
+                      .trim()}
                   </Label>
-                  <Button
-                    variant={value ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => handleNotificationToggle(key as keyof typeof notifications)}
-                    className="h-6 w-12 p-0"
-                  >
-                    {value ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
-                  </Button>
+                  <Switch
+                    checked={value}
+                    onCheckedChange={() =>
+                      handleNotificationToggle(
+                        key as keyof typeof notifications
+                      )
+                    }
+                    disabled={isLoading}
+                  />
                 </div>
               ))}
             </CardContent>
           </Card>
 
           {/* Account Information */}
-          <Card className={cn(
-            glassStyles.card,
-            glassStyles.cardHover,
-            "rounded-2xl shadow-glass-sm",
-            animationClasses.scaleIn
-          )}>
+          <Card
+            className={cn(
+              glassStyles.card,
+              glassStyles.cardHover,
+              "rounded-2xl shadow-glass-sm",
+              animationClasses.scaleIn
+            )}
+          >
             <CardHeader>
               <CardTitle className="text-lg font-semibold text-foreground">
                 Account Info
@@ -426,7 +632,9 @@ export default function TeacherSettingsPage() {
             <CardContent className="space-y-3">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Calendar className="h-4 w-4" />
-                <span>Joined: {new Date(profile.joinDate).toLocaleDateString()}</span>
+                <span>
+                  Joined: {new Date(profile.joinDate).toLocaleDateString()}
+                </span>
               </div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <MapPin className="h-4 w-4" />
