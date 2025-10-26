@@ -1,10 +1,22 @@
 "use client";
 
+import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
+import { useToast } from "@/hooks/use-toast";
 import {
   User,
   Mail,
@@ -16,49 +28,148 @@ import {
   Award,
   BookOpen,
   Clock,
+  Save,
+  Lock,
+  Bell,
+  Palette,
+  Eye,
 } from "lucide-react";
 import ProfileForm from "@/components/ui/student/ProfileForm";
-
-// Mock student data
-const studentData = {
-  name: "John Doe",
-  email: "john.doe@student.com",
-  studentId: "STU-2024-001",
-  phone: "+1 (555) 123-4567",
-  avatar: "/avatars/student.jpg",
-  enrollmentDate: "2024-01-15",
-  program: "Computer Science",
-  semester: "Spring 2024",
-  gpa: "3.8",
-  credits: "45",
-  address: "123 University Ave, Campus City, ST 12345",
-};
-
-const achievements = [
-  {
-    id: 1,
-    title: "Dean's List",
-    description: "Achieved GPA above 3.5 for Spring 2024",
-    date: "2024-05-15",
-    icon: Award,
-  },
-  {
-    id: 2,
-    title: "Perfect Attendance",
-    description: "100% attendance for React Fundamentals course",
-    date: "2024-04-30",
-    icon: Clock,
-  },
-  {
-    id: 3,
-    title: "Course Completion",
-    description: "Completed Database Design course with A+ grade",
-    date: "2024-03-20",
-    icon: BookOpen,
-  },
-];
+import {
+  StudentProfile,
+  NotificationSettings,
+  ThemeSettings,
+  PrivacySettings,
+  mockStudentProfile,
+  mockNotificationSettings,
+  mockThemeSettings,
+  mockPrivacySettings,
+  profileValidationSchema,
+} from "@/data/mock/studentProfile";
 
 export default function ProfilePage() {
+  const { toast } = useToast();
+  const [profileData, setProfileData] =
+    useState<StudentProfile>(mockStudentProfile);
+  const [notificationSettings, setNotificationSettings] =
+    useState<NotificationSettings>(mockNotificationSettings);
+  const [themeSettings, setThemeSettings] =
+    useState<ThemeSettings>(mockThemeSettings);
+  const [privacySettings, setPrivacySettings] =
+    useState<PrivacySettings>(mockPrivacySettings);
+  const [isEditing, setIsEditing] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const achievements = [
+    {
+      id: 1,
+      title: "Dean's List",
+      description: "Achieved GPA above 3.5 for Spring 2024",
+      date: "2024-05-15",
+      icon: Award,
+    },
+    {
+      id: 2,
+      title: "Perfect Attendance",
+      description: "100% attendance for React Fundamentals course",
+      date: "2024-04-30",
+      icon: Clock,
+    },
+    {
+      id: 3,
+      title: "Course Completion",
+      description: "Completed Database Design course with A+ grade",
+      date: "2024-03-20",
+      icon: BookOpen,
+    },
+  ];
+
+  const validateField = (field: string, value: string): string | undefined => {
+    const rules = profileValidationSchema[field];
+    if (!rules) return undefined;
+
+    if (rules.required && !value.trim()) {
+      return `${field} is required`;
+    }
+
+    if (rules.minLength && value.length < rules.minLength) {
+      return `${field} must be at least ${rules.minLength} characters`;
+    }
+
+    if (rules.maxLength && value.length > rules.maxLength) {
+      return `${field} must be no more than ${rules.maxLength} characters`;
+    }
+
+    if (rules.pattern && !rules.pattern.test(value)) {
+      return `${field} format is invalid`;
+    }
+
+    return undefined;
+  };
+
+  const handleProfileChange = (field: keyof StudentProfile, value: string) => {
+    const error = validateField(field, value);
+    setErrors((prev) => ({ ...prev, [field]: error || "" }));
+    setProfileData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleNotificationChange = (
+    field: keyof NotificationSettings,
+    value: boolean
+  ) => {
+    setNotificationSettings((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleThemeChange = (field: keyof ThemeSettings, value: string) => {
+    setThemeSettings((prev) => ({ ...prev, [field]: value as unknown }));
+  };
+
+  const handlePrivacyChange = (
+    field: keyof PrivacySettings,
+    value: string | boolean
+  ) => {
+    setPrivacySettings((prev) => ({ ...prev, [field]: value as unknown }));
+  };
+
+  const handleSaveProfile = () => {
+    const hasErrors = Object.values(errors).some((error) => error);
+    if (hasErrors) {
+      toast({
+        title: "Validation Error",
+        description: "Please fix the errors before saving.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "Profile Updated",
+      description: "Your profile has been updated successfully.",
+    });
+    setIsEditing(false);
+  };
+
+  const handleEnable2FA = () => {
+    toast({
+      title: "Two-Factor Authentication",
+      description: "Two-factor authentication setup has been initiated.",
+    });
+  };
+
+  const handleConfigureEmail = () => {
+    toast({
+      title: "Email Notifications",
+      description: "Email notification preferences opened.",
+    });
+  };
+
+  const handleManagePrivacy = () => {
+    toast({
+      title: "Privacy Settings",
+      description: "Privacy settings panel opened.",
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Section */}
@@ -84,8 +195,21 @@ export default function ProfilePage() {
               Active Student
             </Badge>
             <Badge variant="secondary" className="bg-blue-100 text-blue-700">
-              {studentData.program}
+              {profileData.program}
             </Badge>
+            <Button
+              variant={isEditing ? "default" : "outline"}
+              onClick={() => setIsEditing(!isEditing)}
+            >
+              {isEditing ? (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Save Changes
+                </>
+              ) : (
+                "Edit Profile"
+              )}
+            </Button>
           </div>
         </div>
       </div>
@@ -117,7 +241,7 @@ export default function ProfilePage() {
                     Student ID
                   </p>
                   <p className="font-semibold text-foreground">
-                    {studentData.studentId}
+                    {profileData.studentId}
                   </p>
                 </div>
               </div>
@@ -130,7 +254,7 @@ export default function ProfilePage() {
                     Enrollment Date
                   </p>
                   <p className="font-semibold text-foreground">
-                    {studentData.enrollmentDate}
+                    {profileData.enrollmentDate}
                   </p>
                 </div>
               </div>
@@ -145,7 +269,7 @@ export default function ProfilePage() {
                     Program
                   </p>
                   <p className="font-semibold text-foreground">
-                    {studentData.program}
+                    {profileData.program}
                   </p>
                 </div>
               </div>
@@ -158,7 +282,7 @@ export default function ProfilePage() {
                     Current GPA
                   </p>
                   <p className="font-semibold text-foreground">
-                    {studentData.gpa}
+                    {profileData.gpa}
                   </p>
                 </div>
               </div>
@@ -173,7 +297,7 @@ export default function ProfilePage() {
                     Credits Earned
                   </p>
                   <p className="font-semibold text-foreground">
-                    {studentData.credits}
+                    {profileData.credits}
                   </p>
                 </div>
               </div>
@@ -186,7 +310,7 @@ export default function ProfilePage() {
                     Semester
                   </p>
                   <p className="font-semibold text-foreground">
-                    {studentData.semester}
+                    {profileData.semester}
                   </p>
                 </div>
               </div>
@@ -196,7 +320,188 @@ export default function ProfilePage() {
       </Card>
 
       {/* Profile Form */}
-      <ProfileForm initialData={studentData} />
+      <ProfileForm initialData={profileData} />
+
+      {/* Notification Settings */}
+      <Card
+        className={cn(
+          glassStyles.card,
+          glassStyles.cardHover,
+          "rounded-2xl shadow-glass-sm",
+          animationClasses.scaleIn
+        )}
+      >
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
+            <Bell className="h-5 w-5 text-primary" />
+            Notification Settings
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-4 rounded-lg border border-border/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-blue-100">
+                  <Mail className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <h4 className="font-medium text-foreground">
+                    Email Notifications
+                  </h4>
+                  <p className="text-sm text-muted-foreground">
+                    Receive notifications via email
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={notificationSettings.emailNotifications}
+                onCheckedChange={(checked) =>
+                  handleNotificationChange("emailNotifications", checked)
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between p-4 rounded-lg border border-border/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-green-100">
+                  <Bell className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <h4 className="font-medium text-foreground">
+                    Push Notifications
+                  </h4>
+                  <p className="text-sm text-muted-foreground">
+                    Receive push notifications on your device
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={notificationSettings.pushNotifications}
+                onCheckedChange={(checked) =>
+                  handleNotificationChange("pushNotifications", checked)
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between p-4 rounded-lg border border-border/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-purple-100">
+                  <Clock className="h-5 w-5 text-purple-600" />
+                </div>
+                <div>
+                  <h4 className="font-medium text-foreground">
+                    Assignment Reminders
+                  </h4>
+                  <p className="text-sm text-muted-foreground">
+                    Get reminded about upcoming assignments
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={notificationSettings.assignmentReminders}
+                onCheckedChange={(checked) =>
+                  handleNotificationChange("assignmentReminders", checked)
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between p-4 rounded-lg border border-border/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-orange-100">
+                  <Award className="h-5 w-5 text-orange-600" />
+                </div>
+                <div>
+                  <h4 className="font-medium text-foreground">Grade Updates</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Notify when grades are posted
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={notificationSettings.gradeUpdates}
+                onCheckedChange={(checked) =>
+                  handleNotificationChange("gradeUpdates", checked)
+                }
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Theme Settings */}
+      <Card
+        className={cn(
+          glassStyles.card,
+          glassStyles.cardHover,
+          "rounded-2xl shadow-glass-sm",
+          animationClasses.scaleIn
+        )}
+      >
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
+            <Palette className="h-5 w-5 text-primary" />
+            Theme Settings
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-foreground">
+                Theme Mode
+              </Label>
+              <Select
+                value={themeSettings.theme}
+                onValueChange={(value) => handleThemeChange("theme", value)}
+              >
+                <SelectTrigger className="bg-background/50 border-border/50">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="light">Light</SelectItem>
+                  <SelectItem value="dark">Dark</SelectItem>
+                  <SelectItem value="system">System</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-foreground">
+                Font Size
+              </Label>
+              <Select
+                value={themeSettings.fontSize}
+                onValueChange={(value) => handleThemeChange("fontSize", value)}
+              >
+                <SelectTrigger className="bg-background/50 border-border/50">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="small">Small</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="large">Large</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-foreground">
+                Color Scheme
+              </Label>
+              <Select
+                value={themeSettings.colorScheme}
+                onValueChange={(value) =>
+                  handleThemeChange("colorScheme", value)
+                }
+              >
+                <SelectTrigger className="bg-background/50 border-border/50">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="blue">Blue</SelectItem>
+                  <SelectItem value="green">Green</SelectItem>
+                  <SelectItem value="purple">Purple</SelectItem>
+                  <SelectItem value="orange">Orange</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Achievements Section */}
       <Card
@@ -276,7 +581,7 @@ export default function ProfilePage() {
                   </p>
                 </div>
               </div>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={handleEnable2FA}>
                 Enable
               </Button>
             </div>
@@ -294,14 +599,18 @@ export default function ProfilePage() {
                   </p>
                 </div>
               </div>
-              <Button variant="outline" size="sm">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleConfigureEmail}
+              >
                 Configure
               </Button>
             </div>
             <div className="flex items-center justify-between p-4 rounded-lg border border-border/50">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-purple-100">
-                  <User className="h-5 w-5 text-purple-600" />
+                  <Eye className="h-5 w-5 text-purple-600" />
                 </div>
                 <div>
                   <h4 className="font-medium text-foreground">
@@ -312,7 +621,7 @@ export default function ProfilePage() {
                   </p>
                 </div>
               </div>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={handleManagePrivacy}>
                 Manage
               </Button>
             </div>
