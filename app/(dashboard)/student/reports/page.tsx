@@ -17,8 +17,8 @@ import {
   ClipboardList,
   Calendar as CalendarIcon,
 } from "lucide-react";
-import ReportChart from "@/components/ui/student/ReportChart";
 import { useToast } from "@/hooks/use-toast";
+import ReportChart from "@/components/student/ReportChart";
 
 interface CourseProgress {
   course: string;

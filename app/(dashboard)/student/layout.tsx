@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import StudentNavbar from "@/components/ui/student/Navbar";
-import StudentSidebar from "@/components/ui/student/Sidebar";
+import StudentNavbar from "@/components/student/Navbar";
+import StudentSidebar from "@/components/student/Sidebar";
 
 export default function StudentLayout({ children }: { children: ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);

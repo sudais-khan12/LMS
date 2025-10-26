@@ -13,7 +13,7 @@ import {
   CalendarDays,
   FileText,
 } from "lucide-react";
-import StudentStatCard from "@/components/ui/student/StatCard";
+import StudentStatCard from "@/components/student/StatCard";
 
 // Student-specific stats data
 const studentStatsData = [

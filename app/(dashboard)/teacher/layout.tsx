@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ReactNode } from "react";
 import TeacherSidebar from "@/components/teacher/TeacherSidebar";
 import TeacherNavbar from "@/components/teacher/TeacherNavbar";
+import { Toaster } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 
 export default function TeacherLayout({ children }: { children: ReactNode }) {
@@ -32,7 +33,10 @@ export default function TeacherLayout({ children }: { children: ReactNode }) {
       )}
 
       {/* Navbar - Fixed at top */}
-      <TeacherNavbar pageTitle="Teacher Dashboard" onMenuClick={toggleMobileMenu} />
+      <TeacherNavbar
+        pageTitle="Teacher Dashboard"
+        onMenuClick={toggleMobileMenu}
+      />
 
       {/* Sidebar - Fixed Position */}
       <div
@@ -44,9 +48,9 @@ export default function TeacherLayout({ children }: { children: ReactNode }) {
             : "-translate-x-full lg:translate-x-0"
         )}
       >
-        <TeacherSidebar 
-          isCollapsed={sidebarCollapsed && !mobileMenuOpen} 
-          onToggle={toggleSidebar} 
+        <TeacherSidebar
+          isCollapsed={sidebarCollapsed && !mobileMenuOpen}
+          onToggle={toggleSidebar}
         />
       </div>
 
@@ -63,6 +67,7 @@ export default function TeacherLayout({ children }: { children: ReactNode }) {
           <div className="w-full">{children}</div>
         </main>
       </div>
+      <Toaster />
     </div>
   );
 }
