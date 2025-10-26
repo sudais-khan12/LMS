@@ -29,10 +29,10 @@ import {
   StudentCourse,
   mockStudentCourses,
   courseCategories,
-} from "@/data/mock/studentCourses";
-import CourseCard from "@/components/student/CourseCard";
-import CourseEnrollmentModal from "@/components/student/CourseEnrollmentModal";
-import CourseDetailsModal from "@/components/student/CourseDetailsModal";
+  CourseCard,
+  CourseEnrollmentModal,
+  CourseDetailsModal,
+} from "@/features/courses";
 
 type SortField = "title" | "instructor" | "progress" | "status" | "category";
 type SortDirection = "asc" | "desc";
@@ -318,7 +318,7 @@ export default function MyCoursesPage() {
                 </SelectContent>
               </Select>
               <Select value={filterCategory} onValueChange={setFilterCategory}>
-                <SelectTrigger className="w-[160px] bg-background/50 border-border/50">
+                <SelectTrigger className="w-40 bg-background/50 border-border/50">
                   <SelectValue placeholder="Category" />
                 </SelectTrigger>
                 <SelectContent>

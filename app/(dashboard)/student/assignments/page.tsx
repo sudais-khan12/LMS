@@ -35,9 +35,9 @@ import {
   mockStudentAssignments,
   assignmentCourses,
   assignmentStatuses,
-} from "@/data/mock/studentAssignments";
-import AssignmentTable from "@/components/student/AssignmentTable";
-import AssignmentDetailsModal from "@/components/student/AssignmentDetailsModal";
+  AssignmentTable,
+  AssignmentDetailsModal,
+} from "@/features/assignments";
 
 type SortField = "title" | "course" | "dueDate" | "status" | "points";
 type SortDirection = "asc" | "desc";

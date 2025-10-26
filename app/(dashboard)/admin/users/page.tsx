@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
 import { useToast } from "@/hooks/use-toast";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 import {
   Search,
   Filter,
@@ -33,107 +34,74 @@ import {
 import UserForm from "@/components/admin/UserForm";
 import UserDetailsModal from "@/components/admin/UserDetailsModal";
 import DeleteConfirmationModal from "@/components/admin/DeleteConfirmationModal";
-
-// User interface
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  role: "Student" | "Teacher" | "Admin";
-  status: "Active" | "Pending" | "Inactive";
-  joinDate: string;
-  lastActive: string;
-  avatar: string;
-  phone: string;
-  department: string;
-  courses: string[];
-  verified: boolean;
-}
+import type { BaseUser } from "@/types";
 
 // Mock users data
-const initialUsersData: User[] = [
+const initialUsersData: BaseUser[] = [
   {
     id: 1,
     name: "John Doe",
     email: "john.doe@example.com",
-    role: "Student" as const,
-    status: "Active" as const,
-    joinDate: "2024-01-15",
-    lastActive: "2 hours ago",
-    avatar: "JD",
     phone: "+1 (555) 123-4567",
+    avatar: "JD",
     department: "Computer Science",
-    courses: ["React Fundamentals", "JavaScript Advanced"],
+    joinDate: "2024-01-15",
+    status: "Active" as const,
     verified: true,
   },
   {
     id: 2,
     name: "Sarah Wilson",
     email: "sarah.wilson@example.com",
-    role: "Teacher" as const,
-    status: "Active" as const,
-    joinDate: "2024-01-10",
-    lastActive: "1 hour ago",
-    avatar: "SW",
     phone: "+1 (555) 234-5678",
+    avatar: "SW",
     department: "Computer Science",
-    courses: ["React Fundamentals", "Node.js Backend"],
+    joinDate: "2024-01-10",
+    status: "Active" as const,
     verified: true,
   },
   {
     id: 3,
     name: "Mike Johnson",
     email: "mike.johnson@example.com",
-    role: "Student" as const,
-    status: "Pending" as const,
-    joinDate: "2024-01-20",
-    lastActive: "1 day ago",
-    avatar: "MJ",
     phone: "+1 (555) 345-6789",
+    avatar: "MJ",
     department: "Mathematics",
-    courses: ["Database Design"],
+    joinDate: "2024-01-20",
+    status: "Pending" as const,
     verified: false,
   },
   {
     id: 4,
     name: "Emily Davis",
     email: "emily.davis@example.com",
-    role: "Student" as const,
-    status: "Active" as const,
-    joinDate: "2024-01-18",
-    lastActive: "30 minutes ago",
-    avatar: "ED",
     phone: "+1 (555) 456-7890",
+    avatar: "ED",
     department: "Computer Science",
-    courses: ["UI/UX Design", "JavaScript Advanced"],
+    joinDate: "2024-01-18",
+    status: "Active" as const,
     verified: true,
   },
   {
     id: 5,
     name: "David Brown",
     email: "david.brown@example.com",
-    role: "Teacher" as const,
-    status: "Active" as const,
-    joinDate: "2024-01-12",
-    lastActive: "3 hours ago",
-    avatar: "DB",
     phone: "+1 (555) 567-8901",
+    avatar: "DB",
     department: "Computer Science",
-    courses: ["Database Design", "Node.js Backend"],
+    joinDate: "2024-01-12",
+    status: "Active" as const,
     verified: true,
   },
   {
     id: 6,
     name: "Lisa Garcia",
     email: "lisa.garcia@example.com",
-    role: "Admin" as const,
-    status: "Active" as const,
-    joinDate: "2023-12-01",
-    lastActive: "15 minutes ago",
-    avatar: "LG",
     phone: "+1 (555) 678-9012",
+    avatar: "LG",
     department: "Administration",
-    courses: [],
+    joinDate: "2023-12-01",
+    status: "Active" as const,
     verified: true,
   },
 ];
@@ -175,9 +143,24 @@ type SortField =
   | "lastActive";
 type SortDirection = "asc" | "desc";
 
+type UserWithRole = Omit<BaseUser, 'status'> & {
+  role: "Student" | "Teacher" | "Admin";
+  status: "Active" | "Pending" | "Inactive";
+  lastActive: string;
+  courses: string[];
+};
+
 export default function AdminUsersPage() {
   const { toast } = useToast();
-  const [users, setUsers] = useState<User[]>(initialUsersData);
+  const [users, setUsers] = useState<UserWithRole[]>(
+    initialUsersData.map((u) => ({
+      ...u,
+      status: u.status === "Suspended" ? "Inactive" as const : u.status,
+      role: "Student" as const,
+      lastActive: "2 hours ago",
+      courses: [],
+    }))
+  );
   const [searchTerm, setSearchTerm] = useState("");
   const [filterRole, setFilterRole] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
@@ -185,21 +168,26 @@ export default function AdminUsersPage() {
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [isLoading, setIsLoading] = useState(false);
 
+  // Debounce search term for better performance
+  const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
+
   // Modal states
   const [isUserFormOpen, setIsUserFormOpen] = useState(false);
   const [isUserDetailsOpen, setIsUserDetailsOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [selectedUser, setSelectedUser] = useState<UserWithRole | null>(null);
+  const [editingUser, setEditingUser] = useState<UserWithRole | null>(null);
 
-  // Filter and sort users
+  // Filter and sort users with debounced search
   const filteredAndSortedUsers = useMemo(() => {
     const filtered = users.filter((user) => {
       const matchesSearch =
-        user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.department.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.phone.includes(searchTerm);
+        user.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+        user.email.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+        user.department
+          .toLowerCase()
+          .includes(debouncedSearchTerm.toLowerCase()) ||
+        user.phone.includes(debouncedSearchTerm);
       const matchesRole = filterRole === "All" || user.role === filterRole;
       const matchesStatus =
         filterStatus === "All" || user.status === filterStatus;
@@ -247,7 +235,14 @@ export default function AdminUsersPage() {
     });
 
     return filtered;
-  }, [users, searchTerm, filterRole, filterStatus, sortField, sortDirection]);
+  }, [
+    users,
+    debouncedSearchTerm,
+    filterRole,
+    filterStatus,
+    sortField,
+    sortDirection,
+  ]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -272,17 +267,17 @@ export default function AdminUsersPage() {
     setIsUserFormOpen(true);
   };
 
-  const handleEditUser = (user: User) => {
+  const handleEditUser = (user: UserWithRole) => {
     setEditingUser(user);
     setIsUserFormOpen(true);
   };
 
-  const handleViewUser = (user: User) => {
+  const handleViewUser = (user: UserWithRole) => {
     setSelectedUser(user);
     setIsUserDetailsOpen(true);
   };
 
-  const handleDeleteUser = (user: User) => {
+  const handleDeleteUser = (user: UserWithRole) => {
     setSelectedUser(user);
     setIsDeleteModalOpen(true);
   };
@@ -325,7 +320,7 @@ export default function AdminUsersPage() {
     }
   };
 
-  const handleSaveUser = async (userData: Partial<User>) => {
+  const handleSaveUser = async (userData: Partial<UserWithRole>) => {
     setIsLoading(true);
     try {
       // Simulate API call
@@ -346,17 +341,18 @@ export default function AdminUsersPage() {
         );
       } else {
         // Add new user
-        const newUser: User = {
+        const newUser: UserWithRole = {
           id: Math.max(...users.map((u) => u.id)) + 1,
-          name: userData.name || "Unknown User",
-          email: userData.email || "unknown@example.com",
-          role: userData.role || "Student",
+          name: (userData as Partial<UserWithRole>).name || "Unknown User",
+          email:
+            (userData as Partial<UserWithRole>).email || "unknown@example.com",
+          role: (userData as Partial<UserWithRole>).role || "Student",
           status: userData.status || "Pending",
           phone: userData.phone || "",
           department: userData.department || "",
           joinDate: new Date().toISOString().split("T")[0],
           lastActive: "Just now",
-          avatar: (userData.name || "Unknown")
+          avatar: ((userData as Partial<UserWithRole>).name || "Unknown")
             .split(" ")
             .map((n: string) => n[0])
             .join("")
