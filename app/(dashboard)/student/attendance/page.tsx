@@ -8,7 +8,6 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
 import { Calendar, TrendingUp, Clock, CheckCircle, Filter } from "lucide-react";
-import AttendanceCalendar from "@/components/ui/student/AttendanceCalendar";
 import {
   LineChart,
   Line,
@@ -18,6 +17,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import AttendanceCalendar from "@/components/student/AttendanceCalendar";
 
 interface AttendanceRecord {
   date: string;

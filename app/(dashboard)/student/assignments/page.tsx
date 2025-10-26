@@ -30,14 +30,14 @@ import {
   Eye,
   Loader2,
 } from "lucide-react";
-import AssignmentTable from "@/components/ui/student/AssignmentTable";
-import AssignmentDetailsModal from "@/components/ui/student/AssignmentDetailsModal";
 import {
   StudentAssignment,
   mockStudentAssignments,
   assignmentCourses,
   assignmentStatuses,
 } from "@/data/mock/studentAssignments";
+import AssignmentTable from "@/components/student/AssignmentTable";
+import AssignmentDetailsModal from "@/components/student/AssignmentDetailsModal";
 
 type SortField = "title" | "course" | "dueDate" | "status" | "points";
 type SortDirection = "asc" | "desc";

@@ -25,14 +25,14 @@ import {
   Eye,
   Loader2,
 } from "lucide-react";
-import CourseCard from "@/components/ui/student/CourseCard";
-import CourseEnrollmentModal from "@/components/ui/student/CourseEnrollmentModal";
-import CourseDetailsModal from "@/components/ui/student/CourseDetailsModal";
 import {
   StudentCourse,
   mockStudentCourses,
   courseCategories,
 } from "@/data/mock/studentCourses";
+import CourseCard from "@/components/student/CourseCard";
+import CourseEnrollmentModal from "@/components/student/CourseEnrollmentModal";
+import CourseDetailsModal from "@/components/student/CourseDetailsModal";
 
 type SortField = "title" | "instructor" | "progress" | "status" | "category";
 type SortDirection = "asc" | "desc";

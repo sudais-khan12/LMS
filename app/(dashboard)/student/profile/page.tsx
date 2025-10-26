@@ -34,7 +34,6 @@ import {
   Palette,
   Eye,
 } from "lucide-react";
-import ProfileForm from "@/components/ui/student/ProfileForm";
 import {
   StudentProfile,
   NotificationSettings,
@@ -46,6 +45,7 @@ import {
   mockPrivacySettings,
   profileValidationSchema,
 } from "@/data/mock/studentProfile";
+import ProfileForm from "@/components/student/ProfileForm";
 
 export default function ProfilePage() {
   const { toast } = useToast();
