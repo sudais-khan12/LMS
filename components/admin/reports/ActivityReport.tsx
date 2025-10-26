@@ -7,8 +7,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
 import { ActivityReportProps, ExportOptions } from "@/types/report";
-import ReportFiltersComponent from "./ReportFilters";
-import ExportButton from "./ExportButton";
+import ReportFiltersComponent from "@/components/admin/reports/ReportFilters";
+import ExportButton from "@/components/admin/reports/ExportButton";
 import {
   Users,
   Activity,

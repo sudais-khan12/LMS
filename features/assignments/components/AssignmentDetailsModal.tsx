@@ -1,27 +1,32 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
 import { useToast } from "@/hooks/use-toast";
-import { 
-  Calendar, 
-  Clock, 
-  FileText, 
-  Upload, 
+import {
+  Calendar,
+  Clock,
+  FileText,
+  Upload,
   Download,
   Eye,
   CheckCircle,
   AlertCircle,
   Loader2,
   X,
-  Paperclip
+  Paperclip,
 } from "lucide-react";
-import type { StudentAssignment } from "../api/mock";
+import type { StudentAssignment } from "@/features/assignments/api/mock";
 
 interface AssignmentDetailsModalProps {
   isOpen: boolean;
@@ -31,12 +36,12 @@ interface AssignmentDetailsModalProps {
   isLoading?: boolean;
 }
 
-export default function AssignmentDetailsModal({ 
-  isOpen, 
-  onClose, 
+export default function AssignmentDetailsModal({
+  isOpen,
+  onClose,
   assignment,
   onMarkAsDone,
-  isLoading = false 
+  isLoading = false,
 }: AssignmentDetailsModalProps) {
   const { toast } = useToast();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -63,7 +68,7 @@ export default function AssignmentDetailsModal({
 
   const handleSubmit = async () => {
     if (!onMarkAsDone) return;
-    
+
     setIsUploading(true);
     try {
       await onMarkAsDone(assignment.id, selectedFile || undefined);
@@ -93,27 +98,35 @@ export default function AssignmentDetailsModal({
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      month: 'long', 
-      day: 'numeric', 
-      year: 'numeric' 
+    return date.toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
     });
   };
 
   const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
+    if (bytes === 0) return "0 Bytes";
     const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const sizes = ["Bytes", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
 
   const getStatusBadge = (status: StudentAssignment["status"]) => {
     switch (status) {
       case "submitted":
-        return <Badge variant="secondary" className="bg-green-100 text-green-700">Submitted</Badge>;
+        return (
+          <Badge variant="secondary" className="bg-green-100 text-green-700">
+            Submitted
+          </Badge>
+        );
       case "pending":
-        return <Badge variant="secondary" className="bg-yellow-100 text-yellow-700">Pending</Badge>;
+        return (
+          <Badge variant="secondary" className="bg-yellow-100 text-yellow-700">
+            Pending
+          </Badge>
+        );
       case "overdue":
         return <Badge variant="destructive">Overdue</Badge>;
       default:
@@ -121,7 +134,9 @@ export default function AssignmentDetailsModal({
     }
   };
 
-  const isOverdue = new Date(assignment.dueDate) < new Date() && assignment.status !== "submitted";
+  const isOverdue =
+    new Date(assignment.dueDate) < new Date() &&
+    assignment.status !== "submitted";
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -135,11 +150,13 @@ export default function AssignmentDetailsModal({
 
         <div className="space-y-6">
           {/* Assignment Header */}
-          <Card className={cn(
-            glassStyles.card,
-            "rounded-xl shadow-glass-sm",
-            animationClasses.scaleIn
-          )}>
+          <Card
+            className={cn(
+              glassStyles.card,
+              "rounded-xl shadow-glass-sm",
+              animationClasses.scaleIn
+            )}
+          >
             <CardHeader>
               <div className="flex items-start justify-between">
                 <div className="flex-1">
@@ -149,7 +166,10 @@ export default function AssignmentDetailsModal({
                   <div className="flex items-center gap-2 mb-3">
                     {getStatusBadge(assignment.status)}
                     {assignment.grade && (
-                      <Badge variant="outline" className="bg-blue-100 text-blue-700">
+                      <Badge
+                        variant="outline"
+                        className="bg-blue-100 text-blue-700"
+                      >
                         Grade: {assignment.grade}
                       </Badge>
                     )}
@@ -167,15 +187,20 @@ export default function AssignmentDetailsModal({
               <div className="flex items-center gap-6 text-sm text-muted-foreground">
                 <div className="flex items-center gap-1">
                   <Calendar className="h-4 w-4" />
-                  <span className={cn(isOverdue ? "text-red-600 font-medium" : "")}>
+                  <span
+                    className={cn(isOverdue ? "text-red-600 font-medium" : "")}
+                  >
                     Due: {formatDate(assignment.dueDate)}
                   </span>
                 </div>
                 <div className="flex items-center gap-1">
                   <Clock className="h-4 w-4" />
                   <span>
-                    {assignment.status === "overdue" ? "Overdue" : 
-                     assignment.status === "submitted" ? "Submitted" : "Pending"}
+                    {assignment.status === "overdue"
+                      ? "Overdue"
+                      : assignment.status === "submitted"
+                      ? "Submitted"
+                      : "Pending"}
                   </span>
                 </div>
                 {assignment.submittedDate && (
@@ -191,11 +216,13 @@ export default function AssignmentDetailsModal({
           </Card>
 
           {/* Assignment Description */}
-          <Card className={cn(
-            glassStyles.card,
-            "rounded-xl shadow-glass-sm",
-            animationClasses.scaleIn
-          )}>
+          <Card
+            className={cn(
+              glassStyles.card,
+              "rounded-xl shadow-glass-sm",
+              animationClasses.scaleIn
+            )}
+          >
             <CardHeader>
               <CardTitle className="text-lg font-semibold text-foreground">
                 Assignment Description
@@ -210,10 +237,12 @@ export default function AssignmentDetailsModal({
 
           {/* Feedback Section */}
           {assignment.feedback && (
-            <Card className={cn(
-              "rounded-xl shadow-glass-sm border-blue-200 bg-blue-50/30",
-              animationClasses.scaleIn
-            )}>
+            <Card
+              className={cn(
+                "rounded-xl shadow-glass-sm border-blue-200 bg-blue-50/30",
+                animationClasses.scaleIn
+              )}
+            >
               <CardHeader>
                 <CardTitle className="text-lg font-semibold text-blue-800 flex items-center gap-2">
                   <Eye className="h-5 w-5" />
@@ -230,11 +259,13 @@ export default function AssignmentDetailsModal({
 
           {/* File Upload Section */}
           {assignment.status !== "submitted" && (
-            <Card className={cn(
-              glassStyles.card,
-              "rounded-xl shadow-glass-sm",
-              animationClasses.scaleIn
-            )}>
+            <Card
+              className={cn(
+                glassStyles.card,
+                "rounded-xl shadow-glass-sm",
+                animationClasses.scaleIn
+              )}
+            >
               <CardHeader>
                 <CardTitle className="text-lg font-semibold text-foreground flex items-center gap-2">
                   <Upload className="h-5 w-5" />
@@ -295,7 +326,7 @@ export default function AssignmentDetailsModal({
                     disabled={isLoading || isUploading}
                     className="flex items-center gap-2"
                   >
-                    {(isLoading || isUploading) ? (
+                    {isLoading || isUploading ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <CheckCircle className="h-4 w-4" />
@@ -316,10 +347,12 @@ export default function AssignmentDetailsModal({
 
           {/* Overdue Warning */}
           {isOverdue && assignment.status !== "submitted" && (
-            <Card className={cn(
-              "rounded-xl shadow-glass-sm border-red-200 bg-red-50/50",
-              animationClasses.scaleIn
-            )}>
+            <Card
+              className={cn(
+                "rounded-xl shadow-glass-sm border-red-200 bg-red-50/50",
+                animationClasses.scaleIn
+              )}
+            >
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                   <AlertCircle className="h-5 w-5 text-red-600" />
@@ -328,7 +361,8 @@ export default function AssignmentDetailsModal({
                       This assignment is overdue
                     </p>
                     <p className="text-sm text-red-600">
-                      Please submit it as soon as possible to avoid further penalties.
+                      Please submit it as soon as possible to avoid further
+                      penalties.
                     </p>
                   </div>
                 </div>

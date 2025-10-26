@@ -15,7 +15,7 @@ import {
   CheckCircle,
   Loader2,
 } from "lucide-react";
-import type { StudentAssignment } from "../api/mock";
+import type { StudentAssignment } from "@/features/assignments/api/mock";
 
 interface AssignmentTableProps {
   assignments: StudentAssignment[];

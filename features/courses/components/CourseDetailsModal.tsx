@@ -26,7 +26,7 @@ import {
   Loader2,
   Eye,
 } from "lucide-react";
-import type { StudentCourse } from "../api/mock";
+import type { StudentCourse } from "@/features/courses/api/mock";
 
 interface CourseDetailsModalProps {
   isOpen: boolean;
