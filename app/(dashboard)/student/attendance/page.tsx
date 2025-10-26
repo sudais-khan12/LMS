@@ -1,111 +1,225 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
-import { useToast } from "@/hooks/use-toast";
-import {
-  Calendar,
-  TrendingUp,
-  Clock,
-  CheckCircle,
-  Download,
-  Filter,
-  Search,
-} from "lucide-react";
+import { Calendar, TrendingUp, Clock, CheckCircle, Filter } from "lucide-react";
 import AttendanceCalendar from "@/components/ui/student/AttendanceCalendar";
-import ReportChart from "@/components/ui/student/ReportChart";
 import {
-  AttendanceRecord,
-  AttendanceSummary,
-  mockAttendanceData,
-  mockAttendanceTrend,
-  attendanceCourses,
-  attendanceStatuses,
-  calculateAttendanceSummary,
-} from "@/data/mock/studentAttendance";
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+
+interface AttendanceRecord {
+  date: string;
+  status: "present" | "absent" | "late" | "excused";
+  course: string;
+  time: string;
+}
+
+// Mock attendance data - expanded dataset
+const allAttendanceData: AttendanceRecord[] = [
+  {
+    date: "2024-02-20",
+    status: "present",
+    course: "React Fundamentals",
+    time: "10:00 AM",
+  },
+  {
+    date: "2024-02-19",
+    status: "present",
+    course: "JavaScript Advanced",
+    time: "2:00 PM",
+  },
+  {
+    date: "2024-02-18",
+    status: "late",
+    course: "Node.js Backend",
+    time: "11:00 AM",
+  },
+  {
+    date: "2024-02-17",
+    status: "present",
+    course: "Database Design",
+    time: "9:00 AM",
+  },
+  {
+    date: "2024-02-16",
+    status: "absent",
+    course: "UI/UX Design",
+    time: "3:00 PM",
+  },
+  {
+    date: "2024-02-15",
+    status: "present",
+    course: "React Fundamentals",
+    time: "10:00 AM",
+  },
+  {
+    date: "2024-02-14",
+    status: "present",
+    course: "JavaScript Advanced",
+    time: "2:00 PM",
+  },
+  {
+    date: "2024-02-13",
+    status: "late",
+    course: "Node.js Backend",
+    time: "11:00 AM",
+  },
+  {
+    date: "2024-02-12",
+    status: "present",
+    course: "Database Design",
+    time: "9:00 AM",
+  },
+  {
+    date: "2024-02-11",
+    status: "absent",
+    course: "UI/UX Design",
+    time: "3:00 PM",
+  },
+  {
+    date: "2024-02-10",
+    status: "present",
+    course: "Python for Data Science",
+    time: "1:00 PM",
+  },
+  {
+    date: "2024-02-09",
+    status: "present",
+    course: "React Fundamentals",
+    time: "10:00 AM",
+  },
+  {
+    date: "2024-02-08",
+    status: "excused",
+    course: "JavaScript Advanced",
+    time: "2:00 PM",
+  },
+  {
+    date: "2024-02-07",
+    status: "present",
+    course: "Node.js Backend",
+    time: "11:00 AM",
+  },
+  {
+    date: "2024-02-06",
+    status: "present",
+    course: "Database Design",
+    time: "9:00 AM",
+  },
+  {
+    date: "2024-02-05",
+    status: "present",
+    course: "React Fundamentals",
+    time: "10:00 AM",
+  },
+  {
+    date: "2024-02-04",
+    status: "late",
+    course: "JavaScript Advanced",
+    time: "2:00 PM",
+  },
+  {
+    date: "2024-02-03",
+    status: "present",
+    course: "UI/UX Design",
+    time: "3:00 PM",
+  },
+  {
+    date: "2024-02-02",
+    status: "present",
+    course: "Python for Data Science",
+    time: "1:00 PM",
+  },
+  {
+    date: "2024-02-01",
+    status: "present",
+    course: "React Fundamentals",
+    time: "10:00 AM",
+  },
+];
+
+// Get unique courses for filter
+const uniqueCourses = [
+  "All",
+  ...new Set(allAttendanceData.map((a) => a.course)),
+];
+
+// Monthly attendance trend data
+const monthlyTrend = [
+  { month: "Jan", attendance: 88 },
+  { month: "Feb", attendance: 94 },
+  { month: "Mar", attendance: 91 },
+  { month: "Apr", attendance: 89 },
+  { month: "May", attendance: 95 },
+  { month: "Jun", attendance: 92 },
+];
 
 export default function AttendancePage() {
-  const { toast } = useToast();
-  const [attendanceData, setAttendanceData] =
-    useState<AttendanceRecord[]>(mockAttendanceData);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterCourse, setFilterCourse] = useState("All");
-  const [filterStatus, setFilterStatus] = useState("All");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState("2024-02-01");
+  const [dateTo, setDateTo] = useState("2024-02-20");
+  const [selectedCourse, setSelectedCourse] = useState("All");
 
-  // Filter attendance data
-  const filteredAttendanceData = useMemo(() => {
-    return attendanceData.filter((record) => {
-      const matchesSearch =
-        record.course.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        record.instructor.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        record.room.toLowerCase().includes(searchTerm.toLowerCase());
-
-      const matchesCourse =
-        filterCourse === "All" || record.course === filterCourse;
-      const matchesStatus =
-        filterStatus === "All" || record.status === filterStatus;
-
-      const matchesDateRange =
-        (!dateFrom || record.date >= dateFrom) &&
-        (!dateTo || record.date <= dateTo);
-
-      return (
-        matchesSearch && matchesCourse && matchesStatus && matchesDateRange
-      );
+  // Filter data based on selected filters
+  const filteredData = useMemo(() => {
+    return allAttendanceData.filter((record) => {
+      const dateInRange = record.date >= dateFrom && record.date <= dateTo;
+      const courseMatches =
+        selectedCourse === "All" || record.course === selectedCourse;
+      return dateInRange && courseMatches;
     });
-  }, [
-    attendanceData,
-    searchTerm,
-    filterCourse,
-    filterStatus,
-    dateFrom,
-    dateTo,
-  ]);
+  }, [dateFrom, dateTo, selectedCourse]);
 
-  // Calculate summary for filtered data
+  // Calculate summary from filtered data
   const summary = useMemo(() => {
-    return calculateAttendanceSummary(filteredAttendanceData);
-  }, [filteredAttendanceData]);
+    const presentDays = filteredData.filter(
+      (a) => a.status === "present"
+    ).length;
+    const totalDays = filteredData.length;
+    return {
+      totalDays,
+      presentDays,
+      absentDays: filteredData.filter((a) => a.status === "absent").length,
+      lateDays: filteredData.filter((a) => a.status === "late").length,
+      excusedDays: filteredData.filter((a) => a.status === "excused").length,
+      percentage:
+        totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0,
+    };
+  }, [filteredData]);
 
-  // Prepare trend data for chart
-  const trendData = useMemo(() => {
-    return mockAttendanceTrend.map((item) => ({
-      month: item.month,
-      attendance: item.attendance,
-      present: item.present,
-      absent: item.absent,
-      late: item.late,
-      excused: item.excused,
-    }));
-  }, []);
+  // Generate chart data from filtered results
+  const chartData = useMemo(() => {
+    const dailyAttendance: Record<string, { present: number; total: number }> =
+      {};
 
-  const handleExportReport = () => {
-    toast({
-      title: "Export Successful",
-      description: "Your attendance report has been exported successfully.",
+    filteredData.forEach((record) => {
+      if (!dailyAttendance[record.date]) {
+        dailyAttendance[record.date] = { present: 0, total: 0 };
+      }
+      dailyAttendance[record.date].total++;
+      if (record.status === "present" || record.status === "excused") {
+        dailyAttendance[record.date].present++;
+      }
     });
-  };
 
-  const handleRequestExcuse = () => {
-    toast({
-      title: "Excuse Request",
-      description: "Your excuse request has been submitted for review.",
-    });
-  };
+    return Object.entries(dailyAttendance)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, data]) => ({
+        date,
+        attendance: Math.round((data.present / data.total) * 100),
+      }));
+  }, [filteredData]);
 
   return (
     <div className="space-y-6">
@@ -128,15 +242,15 @@ export default function AttendancePage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleExportReport}>
-              <Download className="h-4 w-4 mr-2" />
+            <Button variant="outline" size="sm">
+              <Calendar className="h-4 w-4 mr-2" />
               Export Report
             </Button>
           </div>
         </div>
       </div>
 
-      {/* Filter Section */}
+      {/* Filters */}
       <Card
         className={cn(
           glassStyles.card,
@@ -152,67 +266,7 @@ export default function AttendancePage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            <div className="space-y-2">
-              <Label
-                htmlFor="search"
-                className="text-sm font-medium text-foreground"
-              >
-                Search
-              </Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="search"
-                  placeholder="Search courses, instructors..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 bg-background/50 border-border/50"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label
-                htmlFor="course"
-                className="text-sm font-medium text-foreground"
-              >
-                Course
-              </Label>
-              <Select value={filterCourse} onValueChange={setFilterCourse}>
-                <SelectTrigger className="bg-background/50 border-border/50">
-                  <SelectValue placeholder="All Courses" />
-                </SelectTrigger>
-                <SelectContent>
-                  {attendanceCourses.map((course) => (
-                    <SelectItem key={course} value={course}>
-                      {course}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label
-                htmlFor="status"
-                className="text-sm font-medium text-foreground"
-              >
-                Status
-              </Label>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="bg-background/50 border-border/50">
-                  <SelectValue placeholder="All Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  {attendanceStatuses.map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {status === "All"
-                        ? "All Status"
-                        : status.charAt(0).toUpperCase() + status.slice(1)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label
                 htmlFor="dateFrom"
@@ -243,25 +297,111 @@ export default function AttendancePage() {
                 className="bg-background/50 border-border/50"
               />
             </div>
+            <div className="space-y-2">
+              <Label
+                htmlFor="course"
+                className="text-sm font-medium text-foreground"
+              >
+                Course / Subject
+              </Label>
+              <select
+                id="course"
+                value={selectedCourse}
+                onChange={(e) => setSelectedCourse(e.target.value)}
+                className="w-full px-3 py-2 rounded-md border border-border/50 bg-background/50 text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              >
+                {uniqueCourses.map((course) => (
+                  <option key={course} value={course}>
+                    {course}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </CardContent>
       </Card>
 
       {/* Attendance Overview */}
-      <AttendanceCalendar
-        attendanceData={filteredAttendanceData}
-        summary={summary}
-      />
+      <AttendanceCalendar attendanceData={filteredData} summary={summary} />
 
       {/* Attendance Trend Chart */}
-      <ReportChart
-        title="Monthly Attendance Trend"
-        data={trendData}
-        type="line"
-        dataKey="attendance"
-        xAxisKey="month"
-        colors={["#3b82f6"]}
-      />
+      <Card
+        className={cn(
+          glassStyles.card,
+          glassStyles.cardHover,
+          "rounded-2xl shadow-glass-sm",
+          animationClasses.scaleIn
+        )}
+      >
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
+            <TrendingUp className="h-5 w-5 text-primary" />
+            Attendance Trend
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {chartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={chartData}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="rgba(226, 232, 240, 0.3)"
+                />
+                <XAxis
+                  dataKey="date"
+                  stroke="rgba(100, 116, 139, 0.8)"
+                  fontSize={12}
+                  tickFormatter={(value) =>
+                    new Date(value).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                    })
+                  }
+                />
+                <YAxis
+                  stroke="rgba(100, 116, 139, 0.8)"
+                  fontSize={12}
+                  domain={[0, 100]}
+                  label={{
+                    value: "Attendance %",
+                    angle: -90,
+                    position: "insideLeft",
+                  }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "rgba(255, 255, 255, 0.95)",
+                    border: "1px solid rgba(226, 232, 240, 0.5)",
+                    borderRadius: "8px",
+                    backdropFilter: "blur(8px)",
+                  }}
+                  labelFormatter={(value) =>
+                    `Date: ${new Date(value).toLocaleDateString()}`
+                  }
+                  formatter={(value) => [`${value}%`, "Attendance"]}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="attendance"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dot={{ fill: "#3b82f6", strokeWidth: 2, r: 4 }}
+                  activeDot={{ r: 6, stroke: "#3b82f6", strokeWidth: 2 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-64 flex items-center justify-center">
+              <div className="text-center">
+                <TrendingUp className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
+                <p className="text-muted-foreground">
+                  No data available for selected filters
+                </p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Attendance Policies */}
       <Card
@@ -331,7 +471,6 @@ export default function AttendancePage() {
             <Button
               variant="outline"
               className="h-auto p-4 flex flex-col items-center gap-2"
-              onClick={handleRequestExcuse}
             >
               <Calendar className="h-6 w-6" />
               <span>Request Excuse</span>
@@ -339,7 +478,6 @@ export default function AttendancePage() {
             <Button
               variant="outline"
               className="h-auto p-4 flex flex-col items-center gap-2"
-              onClick={handleExportReport}
             >
               <TrendingUp className="h-6 w-6" />
               <span>View Reports</span>
@@ -347,12 +485,6 @@ export default function AttendancePage() {
             <Button
               variant="outline"
               className="h-auto p-4 flex flex-col items-center gap-2"
-              onClick={() => {
-                toast({
-                  title: "Attendance History",
-                  description: "Opening detailed attendance history...",
-                });
-              }}
             >
               <CheckCircle className="h-6 w-6" />
               <span>Attendance History</span>
