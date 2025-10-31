@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { signIn } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,7 @@ import { Globe } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const [loading, setLoading] = React.useState(false);
   const [formData, setFormData] = React.useState({
@@ -22,6 +24,9 @@ export default function LoginPage() {
     rememberMe: false,
   });
   const [errors, setErrors] = React.useState<Record<string, string>>({});
+
+  // Get callback URL from query params
+  const callbackUrl = searchParams.get("callbackUrl") || "/select-role";
 
   const validateEmail = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -61,19 +66,42 @@ export default function LoginPage() {
 
     setLoading(true);
 
-    // Simulate API call
-    setTimeout(() => {
-      setLoading(false);
-      toast({
-        title: "Login Successful",
-        description: "Redirecting to dashboard...",
+    try {
+      const result = await signIn("credentials", {
+        email: formData.email,
+        password: formData.password,
+        redirect: false,
       });
 
-      // Redirect to role selector after successful login
-      setTimeout(() => {
-        router.push("/select-role");
-      }, 1000);
-    }, 1500);
+      if (result?.error) {
+        toast({
+          variant: "destructive",
+          title: "Login Failed",
+          description: result.error || "Invalid email or password",
+        });
+        setLoading(false);
+        return;
+      }
+
+      if (result?.ok) {
+        toast({
+          title: "Login Successful",
+          description: "Redirecting to dashboard...",
+        });
+
+        // Redirect to callback URL or select-role
+        router.push(callbackUrl);
+        router.refresh();
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "An error occurred during login",
+      });
+      setLoading(false);
+    }
   };
 
   const handleChange = (field: string, value: string | boolean) => {
