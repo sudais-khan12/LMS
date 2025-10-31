@@ -14,6 +14,7 @@ async function main(): Promise<void> {
 	await prisma.assignment.deleteMany();
 	await prisma.attendance.deleteMany();
 	await prisma.report.deleteMany();
+	await prisma.notification.deleteMany();
 	await prisma.leaveRequest.deleteMany();
 	await prisma.course.deleteMany();
 	await prisma.teacher.deleteMany();
@@ -164,12 +165,52 @@ async function main(): Promise<void> {
 		},
 	});
 
-	await prisma.leaveRequest.create({
+	// Leave Request - using new schema
+	const fromDate = new Date();
+	fromDate.setDate(fromDate.getDate() + 7);
+	const toDate = new Date(fromDate);
+	toDate.setDate(toDate.getDate() + 2);
+
+	const leaveRequest = await prisma.leaveRequest.create({
 		data: {
+			requesterId: studentUser.id,
 			studentId,
-			reason: 'Medical appointment',
+			type: 'SICK',
+			fromDate,
+			toDate,
+			reason: 'Medical appointment scheduled for checkup',
 			status: 'PENDING' as LeaveStatusEnum,
 		},
+	});
+
+	// Notifications
+	await prisma.notification.createMany({
+		data: [
+			{
+				userId: admin.id,
+				title: 'New Leave Request',
+				body: `${studentUser.name} has submitted a leave request (SICK)`,
+				link: `/admin/leaves/${leaveRequest.id}`,
+				category: 'leave',
+				isRead: false,
+				data: {
+					leaveRequestId: leaveRequest.id,
+					requesterId: studentUser.id,
+					requesterName: studentUser.name,
+				},
+			},
+			{
+				userId: studentUser.id,
+				title: 'Welcome to LMS',
+				body: 'Your account has been created. Explore the platform to get started!',
+				link: '/student/dashboard',
+				category: 'system',
+				isRead: false,
+				data: {
+					type: 'welcome',
+				},
+			},
+		],
 	});
 
 	// eslint-disable-next-line no-console
@@ -177,6 +218,8 @@ async function main(): Promise<void> {
 	console.log('- Admin:', { email: admin.email, password: 'adminpassword' });
 	console.log('- Teacher:', { email: teacherUser.email, password: 'teacherpassword' });
 	console.log('- Student:', { email: studentUser.email, password: 'studentpassword' });
+	console.log('- Leave Request created:', leaveRequest.id);
+	console.log('- Notifications created for admin and student');
 }
 
 main()

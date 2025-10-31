@@ -1,7 +1,7 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useSession } from "next-auth/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,8 +15,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  studentsData,
-  detailedClassesData,
   glassStyles,
   animationClasses,
 } from "@/config/teacher-constants";
@@ -29,8 +27,11 @@ import {
   Clock,
   Download,
   Save,
+  Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAttendance } from "@/hooks/useAttendance";
+import { api } from "@/lib/api";
 import {
   BarChart,
   Bar,
@@ -42,71 +43,160 @@ import {
   Legend,
 } from "recharts";
 
+interface Course {
+  id: string;
+  title: string;
+  code: string;
+  description?: string;
+}
+
 interface Student {
-  id: number;
+  id: string;
+  userId: string;
   name: string;
-  studentId: string;
   email: string;
-  attendanceStatus: "Present" | "Absent" | "Late";
+  enrollmentNo: string;
+  semester: number;
+  section: string;
+  attendanceStatus?: "PRESENT" | "ABSENT" | "LATE";
 }
 
 interface AttendanceRecord {
+  id: string;
+  studentId: string;
+  courseId: string;
   date: string;
-  classId: number;
-  students: Student[];
+  status: "PRESENT" | "ABSENT" | "LATE";
 }
 
 export default function AttendancePage() {
   const { toast } = useToast();
-  const [selectedClass, setSelectedClass] = useState<number>(1);
+  const { data: session } = useSession();
+  const { items: attendanceItems, list: listAttendance, create: createAttendance, loading: attendanceLoading } = useAttendance();
+  
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [selectedCourseId, setSelectedCourseId] = useState<string>("");
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split("T")[0]
   );
   const [searchQuery, setSearchQuery] = useState("");
-  const [attendanceRecords, setAttendanceRecords] = useState<
-    AttendanceRecord[]
-  >([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  // Initialize with default attendance data
-  const [currentAttendance, setCurrentAttendance] = useState<Student[]>(
-    studentsData.map((s) => ({
-      ...s,
-      attendanceStatus: s.status,
-    }))
-  );
+  // Fetch teacher's courses
+  useEffect(() => {
+    const fetchCourses = async () => {
+      setLoading(true);
+      try {
+        const res = await api.get<Course[]>('/api/courses');
+        if (res.success && res.data) {
+          setCourses(res.data);
+          if (res.data.length > 0 && !selectedCourseId) {
+            setSelectedCourseId(res.data[0].id);
+          }
+        }
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to load courses",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (session?.user) {
+      fetchCourses();
+    }
+  }, [session, toast]);
+
+  // Fetch students for selected course
+  useEffect(() => {
+    const fetchStudents = async () => {
+      if (!selectedCourseId) return;
+
+      setLoading(true);
+      try {
+        const res = await api.get<Student[]>(`/api/courses/${selectedCourseId}/students`);
+        if (res.success && res.data) {
+          // Initialize students with default status
+          const studentsWithStatus = res.data.map((s) => ({
+            ...s,
+            attendanceStatus: "PRESENT" as const,
+          }));
+          setStudents(studentsWithStatus);
+        } else {
+          setStudents([]);
+        }
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to load students",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (selectedCourseId) {
+      fetchStudents();
+    }
+  }, [selectedCourseId, toast]);
+
+  // Load existing attendance for selected date and course
+  useEffect(() => {
+    const loadExistingAttendance = async () => {
+      if (!selectedCourseId || !selectedDate || students.length === 0) return;
+
+      const res = await listAttendance({ courseId: selectedCourseId });
+      
+      if (res.success && res.data) {
+        // Update student statuses based on existing attendance for selected date
+        const dateAttendance = (res.data as AttendanceRecord[]).filter((att: any) => {
+          const attDate = new Date(att.date).toISOString().split("T")[0];
+          return attDate === selectedDate;
+        });
+
+        setStudents((prev) =>
+          prev.map((student) => {
+            const existing = dateAttendance.find((att: any) => att.studentId === student.id);
+            return {
+              ...student,
+              attendanceStatus: existing ? existing.status : ("PRESENT" as const),
+            };
+          })
+        );
+      }
+    };
+
+    if (selectedCourseId && selectedDate && students.length > 0) {
+      loadExistingAttendance();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCourseId, selectedDate, students.length]);
 
   // Filter students based on search
   const filteredStudents = useMemo(() => {
-    return currentAttendance.filter(
+    return students.filter(
       (student) =>
         student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        student.studentId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        student.enrollmentNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
         student.email.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  }, [currentAttendance, searchQuery]);
+  }, [students, searchQuery]);
 
-  // Get selected class details
-  const selectedClassDetails = useMemo(() => {
-    return detailedClassesData.find((c) => c.id === selectedClass);
-  }, [selectedClass]);
-
-  // Update attendance when class changes
-  useEffect(() => {
-    if (selectedClassDetails) {
-      // Use the students from the selected class
-      const classStudents = selectedClassDetails.students.map((s) => ({
-        ...s,
-        attendanceStatus: "Present" as const,
-      }));
-      setCurrentAttendance(classStudents);
-    }
-  }, [selectedClass, selectedClassDetails]);
+  const selectedCourse = useMemo(() => {
+    return courses.find((c) => c.id === selectedCourseId);
+  }, [courses, selectedCourseId]);
 
   const handleStatusChange = (
-    studentId: number,
-    status: "Present" | "Absent" | "Late"
+    studentId: string,
+    status: "PRESENT" | "ABSENT" | "LATE"
   ) => {
-    setCurrentAttendance((prev) =>
+    setStudents((prev) =>
       prev.map((student) =>
         student.id === studentId
           ? { ...student, attendanceStatus: status }
@@ -115,42 +205,42 @@ export default function AttendancePage() {
     );
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status?: string) => {
     switch (status) {
-      case "Present":
+      case "PRESENT":
         return "bg-green-100 text-green-800 border-green-200";
-      case "Absent":
+      case "ABSENT":
         return "bg-red-100 text-red-800 border-red-200";
-      case "Late":
+      case "LATE":
         return "bg-yellow-100 text-yellow-800 border-yellow-200";
       default:
         return "bg-gray-100 text-gray-800 border-gray-200";
     }
   };
 
-  const getStatusIcon = (status: string) => {
+  const getStatusIcon = (status?: string) => {
     switch (status) {
-      case "Present":
+      case "PRESENT":
         return <CheckCircle className="h-4 w-4" />;
-      case "Absent":
+      case "ABSENT":
         return <XCircle className="h-4 w-4" />;
-      case "Late":
+      case "LATE":
         return <Clock className="h-4 w-4" />;
       default:
         return <Clock className="h-4 w-4" />;
     }
   };
 
-  const presentCount = currentAttendance.filter(
-    (s) => s.attendanceStatus === "Present"
+  const presentCount = students.filter(
+    (s) => s.attendanceStatus === "PRESENT"
   ).length;
-  const absentCount = currentAttendance.filter(
-    (s) => s.attendanceStatus === "Absent"
+  const absentCount = students.filter(
+    (s) => s.attendanceStatus === "ABSENT"
   ).length;
-  const lateCount = currentAttendance.filter(
-    (s) => s.attendanceStatus === "Late"
+  const lateCount = students.filter(
+    (s) => s.attendanceStatus === "LATE"
   ).length;
-  const totalStudents = currentAttendance.length;
+  const totalStudents = students.length;
   const attendanceRate =
     totalStudents > 0 ? Math.round((presentCount / totalStudents) * 100) : 0;
 
@@ -165,20 +255,66 @@ export default function AttendancePage() {
   ];
 
   // Handle save attendance
-  const handleSaveAttendance = () => {
-    const record: AttendanceRecord = {
-      date: selectedDate,
-      classId: selectedClass,
-      students: currentAttendance,
-    };
+  const handleSaveAttendance = async () => {
+    if (!selectedCourseId) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please select a course",
+      });
+      return;
+    }
 
-    // Update records (in a real app, this would be sent to backend)
-    setAttendanceRecords((prev) => [...prev, record]);
+    if (students.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "No students to mark attendance for",
+      });
+      return;
+    }
 
-    toast({
-      title: "Success",
-      description: "Attendance updated successfully",
-    });
+    setSaving(true);
+    try {
+      // Mark attendance for all students
+      const promises = students.map((student) =>
+        createAttendance({
+          courseId: selectedCourseId,
+          studentId: student.id,
+          status: student.attendanceStatus || "PRESENT",
+          date: selectedDate,
+        })
+      );
+
+      const results = await Promise.allSettled(promises);
+
+      // Check for errors
+      const errors = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.success));
+      
+      if (errors.length > 0) {
+        toast({
+          variant: "destructive",
+          title: "Partial Success",
+          description: `Failed to mark attendance for ${errors.length} student(s)`,
+        });
+      } else {
+        toast({
+          title: "Success",
+          description: "Attendance marked successfully",
+        });
+      }
+
+      // Reload attendance list
+      await listAttendance({ courseId: selectedCourseId });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to save attendance",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Handle export
@@ -215,9 +351,18 @@ export default function AttendancePage() {
               <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
-            <Button onClick={handleSaveAttendance}>
-              <Save className="h-4 w-4 mr-2" />
-              Save Attendance
+            <Button onClick={handleSaveAttendance} disabled={saving || !selectedCourseId || students.length === 0}>
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Save Attendance
+                </>
+              )}
             </Button>
           </div>
         </div>
@@ -234,21 +379,19 @@ export default function AttendancePage() {
             />
           </div>
           <div className="space-y-2">
-            <Label>Class</Label>
+            <Label>Course</Label>
             <Select
-              value={selectedClass.toString()}
-              onValueChange={(val) => setSelectedClass(Number(val))}
+              value={selectedCourseId}
+              onValueChange={(val) => setSelectedCourseId(val)}
+              disabled={loading || courses.length === 0}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Select a class" />
+                <SelectValue placeholder="Select a course" />
               </SelectTrigger>
               <SelectContent>
-                {detailedClassesData.map((classItem) => (
-                  <SelectItem
-                    key={classItem.id}
-                    value={classItem.id.toString()}
-                  >
-                    {classItem.subject} - {classItem.classCode}
+                {courses.map((course) => (
+                  <SelectItem key={course.id} value={course.id}>
+                    {course.title} - {course.code}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -380,7 +523,7 @@ export default function AttendancePage() {
       >
         <CardHeader>
           <CardTitle className="text-lg font-semibold text-foreground">
-            Attendance Overview - {selectedClassDetails?.subject} (
+            Attendance Overview - {selectedCourse?.title || "No Course Selected"} (
             {new Date(selectedDate).toLocaleDateString()})
           </CardTitle>
         </CardHeader>
@@ -429,9 +572,16 @@ export default function AttendancePage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {filteredStudents.length === 0 ? (
+          {loading ? (
             <div className="text-center py-12">
-              <p className="text-muted-foreground">No students found</p>
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+              <p className="text-muted-foreground mt-4">Loading students...</p>
+            </div>
+          ) : filteredStudents.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground">
+                {students.length === 0 ? "No students enrolled in this course" : "No students found"}
+              </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -474,7 +624,7 @@ export default function AttendancePage() {
                         </div>
                       </td>
                       <td className="py-3 px-4 text-sm text-muted-foreground">
-                        {student.studentId}
+                        {student.enrollmentNo}
                       </td>
                       <td className="py-3 px-4 text-sm text-muted-foreground">
                         {student.email}
@@ -488,7 +638,7 @@ export default function AttendancePage() {
                           )}
                         >
                           {getStatusIcon(student.attendanceStatus)}
-                          {student.attendanceStatus}
+                          {student.attendanceStatus || "PRESENT"}
                         </Badge>
                       </td>
                       <td className="py-3 px-4">
@@ -498,8 +648,9 @@ export default function AttendancePage() {
                             size="sm"
                             className="text-xs"
                             onClick={() =>
-                              handleStatusChange(student.id, "Present")
+                              handleStatusChange(student.id, "PRESENT")
                             }
+                            disabled={student.attendanceStatus === "PRESENT"}
                           >
                             Present
                           </Button>
@@ -508,8 +659,9 @@ export default function AttendancePage() {
                             size="sm"
                             className="text-xs"
                             onClick={() =>
-                              handleStatusChange(student.id, "Absent")
+                              handleStatusChange(student.id, "ABSENT")
                             }
+                            disabled={student.attendanceStatus === "ABSENT"}
                           >
                             Absent
                           </Button>
@@ -518,8 +670,9 @@ export default function AttendancePage() {
                             size="sm"
                             className="text-xs"
                             onClick={() =>
-                              handleStatusChange(student.id, "Late")
+                              handleStatusChange(student.id, "LATE")
                             }
+                            disabled={student.attendanceStatus === "LATE"}
                           >
                             Late
                           </Button>
