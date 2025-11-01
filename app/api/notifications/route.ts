@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { auth } from '@/lib/auth';
-import { Role } from '@prisma/client';
-import { z } from 'zod';
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
+import { Role } from "@prisma/client";
+import { z } from "zod";
 
 const createNotificationSchema = z.object({
   userId: z.string().optional(),
@@ -18,21 +18,26 @@ export async function GET(request: NextRequest) {
   try {
     const session = await auth();
     if (!session || !session.user) {
-      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     const role = session.user.role as Role;
     const { searchParams } = new URL(request.url);
-    const unread = searchParams.get('unread') === 'true';
-    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
-    const cursor = searchParams.get('cursor') ?? undefined;
-    const category = searchParams.get('category') ?? undefined;
+    const unread = searchParams.get("unread") === "true";
+    const limit = searchParams.get("limit")
+      ? parseInt(searchParams.get("limit")!)
+      : undefined;
+    const cursor = searchParams.get("cursor") ?? undefined;
+    const category = searchParams.get("category") ?? undefined;
 
-    let where: any = {};
+    const where: any = {};
 
-    if (role === 'ADMIN') {
+    if (role === "ADMIN") {
       // Admin can see all notifications or filter by userId
-      const userId = searchParams.get('userId') ?? undefined;
+      const userId = searchParams.get("userId") ?? undefined;
       if (userId) {
         where.userId = userId;
       }
@@ -60,7 +65,7 @@ export async function GET(request: NextRequest) {
     const notifications = await prisma.notification.findMany({
       where,
       orderBy: {
-        createdAt: 'desc',
+        createdAt: "desc",
       },
       take,
       skip,
@@ -77,7 +82,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        message: 'Notifications fetched successfully',
+        message: "Notifications fetched successfully",
         data: {
           notifications,
           unreadCount,
@@ -87,8 +92,11 @@ export async function GET(request: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
-    console.error('GET /api/notifications error:', error);
-    return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
+    console.error("GET /api/notifications error:", error);
+    return NextResponse.json(
+      { success: false, message: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -96,20 +104,36 @@ export async function POST(request: NextRequest) {
   try {
     const session = await auth();
     if (!session || !session.user) {
-      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     const role = session.user.role as Role;
     // Only admins can manually create notifications
-    if (role !== 'ADMIN') {
-      return NextResponse.json({ success: false, message: 'Forbidden: Only admins can create notifications' }, { status: 403 });
+    if (role !== "ADMIN") {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Forbidden: Only admins can create notifications",
+        },
+        { status: 403 }
+      );
     }
 
     const body = await request.json();
     const parsed = createNotificationSchema.safeParse(body);
 
     if (!parsed.success) {
-      return NextResponse.json({ success: false, message: 'Validation error', data: parsed.error.issues }, { status: 400 });
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Validation error",
+          data: parsed.error.issues,
+        },
+        { status: 400 }
+      );
     }
 
     // Determine target users
@@ -143,10 +167,20 @@ export async function POST(request: NextRequest) {
       )
     );
 
-    return NextResponse.json({ success: true, message: 'Notifications created successfully', data: notifications }, { status: 201 });
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Notifications created successfully",
+        data: notifications,
+      },
+      { status: 201 }
+    );
   } catch (error) {
-    console.error('POST /api/notifications error:', error);
-    return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
+    console.error("POST /api/notifications error:", error);
+    return NextResponse.json(
+      { success: false, message: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -154,12 +188,15 @@ export async function DELETE(request: NextRequest) {
   try {
     const session = await auth();
     if (!session || !session.user) {
-      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     const { searchParams } = new URL(request.url);
-    const isRead = searchParams.get('isRead') === 'true';
-    const category = searchParams.get('category') ?? undefined;
+    const isRead = searchParams.get("isRead") === "true";
+    const category = searchParams.get("category") ?? undefined;
 
     let where: any = {
       userId: session.user.id,
@@ -177,10 +214,19 @@ export async function DELETE(request: NextRequest) {
       where,
     });
 
-    return NextResponse.json({ success: true, message: `${result.count} notification(s) deleted successfully`, data: { count: result.count } }, { status: 200 });
+    return NextResponse.json(
+      {
+        success: true,
+        message: `${result.count} notification(s) deleted successfully`,
+        data: { count: result.count },
+      },
+      { status: 200 }
+    );
   } catch (error) {
-    console.error('DELETE /api/notifications error:', error);
-    return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
+    console.error("DELETE /api/notifications error:", error);
+    return NextResponse.json(
+      { success: false, message: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
-

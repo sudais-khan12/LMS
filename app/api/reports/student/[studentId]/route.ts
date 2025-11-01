@@ -120,6 +120,92 @@ export async function GET(request: NextRequest, { params }: { params: { studentI
     // Calculate overall GPA if reports exist
     const overallGPA = reports.length > 0 ? reports.reduce((acc, r) => acc + r.gpa, 0) / reports.length : 0;
 
+    // Get GPA trend data (by semester)
+    const gpaTrend = reports
+      .sort((a, b) => a.semester - b.semester)
+      .map((r) => ({
+        semester: r.semester,
+        gpa: r.gpa,
+      }));
+
+    // Get attendance trend data (by month)
+    const attendanceByMonth = new Map<string, { total: number; present: number }>();
+    attendanceRecords.forEach((record) => {
+      const monthKey = `${record.date.getFullYear()}-${String(record.date.getMonth() + 1).padStart(2, '0')}`;
+      if (!attendanceByMonth.has(monthKey)) {
+        attendanceByMonth.set(monthKey, { total: 0, present: 0 });
+      }
+      const monthData = attendanceByMonth.get(monthKey)!;
+      monthData.total++;
+      if (record.status === 'PRESENT') {
+        monthData.present++;
+      }
+    });
+
+    const attendanceTrend = Array.from(attendanceByMonth.entries())
+      .map(([month, data]) => ({
+        month,
+        attendance: data.total > 0 ? Math.round((data.present / data.total) * 100) : 0,
+        totalClasses: data.total,
+        presentCount: data.present,
+      }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+
+    // Get course performance trend
+    const coursePerformanceMap = new Map<
+      string,
+      { course: any; grades: number[]; attendance: { total: number; present: number } }
+    >();
+
+    // Add grades from submissions
+    submissions.forEach((submission) => {
+      const courseId = submission.assignment.course.id;
+      if (!coursePerformanceMap.has(courseId)) {
+        coursePerformanceMap.set(courseId, {
+          course: submission.assignment.course,
+          grades: [],
+          attendance: { total: 0, present: 0 },
+        });
+      }
+      const courseData = coursePerformanceMap.get(courseId)!;
+      if (submission.grade !== null) {
+        courseData.grades.push(submission.grade);
+      }
+    });
+
+    // Add attendance data
+    attendanceRecords.forEach((record) => {
+      const courseId = record.course.id;
+      if (!coursePerformanceMap.has(courseId)) {
+        coursePerformanceMap.set(courseId, {
+          course: record.course,
+          grades: [],
+          attendance: { total: 0, present: 0 },
+        });
+      }
+      const courseData = coursePerformanceMap.get(courseId)!;
+      courseData.attendance.total++;
+      if (record.status === 'PRESENT') {
+        courseData.attendance.present++;
+      }
+    });
+
+    const coursePerformance = Array.from(coursePerformanceMap.values()).map((data) => {
+      const avgGrade = data.grades.length > 0 ? data.grades.reduce((acc, g) => acc + g, 0) / data.grades.length : 0;
+      const attendancePercentage =
+        data.attendance.total > 0 ? (data.attendance.present / data.attendance.total) * 100 : 0;
+
+      return {
+        courseId: data.course.id,
+        courseName: data.course.title,
+        courseCode: data.course.code,
+        averageGrade: Math.round(avgGrade * 100) / 100,
+        attendancePercentage: Math.round(attendancePercentage * 100) / 100,
+        totalAssignments: data.grades.length,
+        totalClasses: data.attendance.total,
+      };
+    });
+
     // Get student info
     const student = await prisma.student.findUnique({
       where: { id: params.studentId },
@@ -142,21 +228,30 @@ export async function GET(request: NextRequest, { params }: { params: { studentI
           student,
           reports,
           overallGPA: Math.round(overallGPA * 100) / 100,
+          gpaTrend,
           attendance: {
             totalClasses,
             presentCount,
             absentCount,
             lateCount,
             attendanceRate: Math.round(attendanceRate * 100) / 100,
-            records: attendanceRecords,
+            trend: attendanceTrend,
+            records: attendanceRecords.map((r) => ({
+              ...r,
+              date: r.date.toISOString(),
+            })),
           },
           assignments: {
             totalSubmissions,
             completedAssignments,
             pendingAssignments,
             averageScore: Math.round(avgAssignmentScore * 100) / 100,
-            submissions,
+            submissions: submissions.map((s) => ({
+              ...s,
+              submittedAt: s.submittedAt.toISOString(),
+            })),
           },
+          coursePerformance,
         },
       },
       { status: 200 }

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Bell, Menu, User, Settings, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import NotificationDropdown from "@/components/notifications/NotificationDropdown";
 
 interface DashboardNavbarProps {
   pageTitle: string;
@@ -37,8 +38,6 @@ export default function DashboardNavbar({
   },
   searchPlaceholder = "Search...",
 }: DashboardNavbarProps) {
-  const [notifications] = useState(3); // Mock notification count
-
   return (
     <header
       className={cn(
@@ -72,18 +71,7 @@ export default function DashboardNavbar({
         </div>
 
         {/* Notifications */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="relative text-gray-700 hover:bg-white/50"
-        >
-          <Bell className="h-5 w-5" />
-          {notifications > 0 && (
-            <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
-              {notifications}
-            </span>
-          )}
-        </Button>
+        <NotificationDropdown />
 
         {/* User Menu */}
         <DropdownMenu>
