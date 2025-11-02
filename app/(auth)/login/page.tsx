@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { signIn } from "next-auth/react";
+import { signIn, getSession, useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,7 @@ export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
+  const { data: session, status } = useSession();
   const [loading, setLoading] = React.useState(false);
   const [formData, setFormData] = React.useState({
     email: "",
@@ -25,8 +26,19 @@ export default function LoginPage() {
   });
   const [errors, setErrors] = React.useState<Record<string, string>>({});
 
-  // Get callback URL from query params
-  const callbackUrl = searchParams.get("callbackUrl") || "/select-role";
+  // Redirect authenticated users to their dashboard
+  React.useEffect(() => {
+    if (status === "authenticated" && session?.user?.role) {
+      const role = session.user.role;
+      if (role === "ADMIN") {
+        router.replace("/admin");
+      } else if (role === "TEACHER") {
+        router.replace("/teacher");
+      } else if (role === "STUDENT") {
+        router.replace("/student");
+      }
+    }
+  }, [session, status, router]);
 
   const validateEmail = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -89,8 +101,51 @@ export default function LoginPage() {
           description: "Redirecting to dashboard...",
         });
 
-        // Redirect to callback URL or select-role
-        router.push(callbackUrl);
+        // Small delay to ensure session is updated
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        
+        // Fetch session to get user role from API
+        let redirectUrl = "/select-role"; // fallback
+        
+        try {
+          const response = await fetch("/api/auth/session");
+          const sessionData = await response.json();
+          const role = sessionData?.data?.user?.role;
+          
+          if (role) {
+            if (role === "ADMIN") {
+              redirectUrl = "/admin";
+            } else if (role === "TEACHER") {
+              redirectUrl = "/teacher";
+            } else if (role === "STUDENT") {
+              redirectUrl = "/student";
+            }
+          } else {
+            // Fallback: try getSession from next-auth/react
+            const session = await getSession();
+            if (session?.user?.role) {
+              const role = session.user.role;
+              if (role === "ADMIN") {
+                redirectUrl = "/admin";
+              } else if (role === "TEACHER") {
+                redirectUrl = "/teacher";
+              } else if (role === "STUDENT") {
+                redirectUrl = "/student";
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Error fetching session:", err);
+        }
+
+        // Check if there's a callbackUrl in query params (for protected routes)
+        const callbackUrl = searchParams.get("callbackUrl");
+        if (callbackUrl && callbackUrl !== "/select-role") {
+          redirectUrl = callbackUrl;
+        }
+
+        // Redirect to the appropriate dashboard
+        router.push(redirectUrl);
         router.refresh();
       }
     } catch (error) {
@@ -111,6 +166,18 @@ export default function LoginPage() {
       setErrors((prev) => ({ ...prev, [field]: "" }));
     }
   };
+
+  // Show loading state while checking session
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center p-4">

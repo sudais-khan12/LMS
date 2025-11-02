@@ -30,8 +30,13 @@ import {
   Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useAttendance } from "@/hooks/useAttendance";
-import { api } from "@/lib/api";
+import {
+  useTeacherAttendance,
+  useCreateTeacherAttendance,
+  useTeacherClasses,
+  type TeacherClass,
+} from "@/lib/hooks/api/teacher";
+import { apiClient } from "@/lib/apiClient";
 import {
   BarChart,
   Bar,
@@ -72,9 +77,11 @@ interface AttendanceRecord {
 export default function AttendancePage() {
   const { toast } = useToast();
   const { data: session } = useSession();
-  const { items: attendanceItems, list: listAttendance, create: createAttendance, loading: attendanceLoading } = useAttendance();
+
+  // API hooks
+  const { data: coursesData, isLoading: coursesLoading } = useTeacherClasses({ limit: 100 });
+  const createAttendance = useCreateTeacherAttendance();
   
-  const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string>("");
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split("T")[0]
@@ -82,48 +89,41 @@ export default function AttendancePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
 
-  // Fetch teacher's courses
-  useEffect(() => {
-    const fetchCourses = async () => {
-      setLoading(true);
-      try {
-        const res = await api.get<Course[]>('/api/courses');
-        if (res.success && res.data) {
-          setCourses(res.data);
-          if (res.data.length > 0 && !selectedCourseId) {
-            setSelectedCourseId(res.data[0].id);
-          }
-        }
-      } catch (error) {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to load courses",
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (session?.user) {
-      fetchCourses();
-    }
-  }, [session, toast]);
+  // Map API courses to Course format
+  const courses = useMemo(() => {
+    return (coursesData?.items || []).map((course: TeacherClass) => ({
+      id: course.id,
+      title: course.title,
+      code: course.code,
+      description: course.description,
+    }));
+  }, [coursesData]);
 
   // Fetch students for selected course
   useEffect(() => {
     const fetchStudents = async () => {
-      if (!selectedCourseId) return;
+      if (!selectedCourseId) {
+        setStudents([]);
+        return;
+      }
 
       setLoading(true);
       try {
-        const res = await api.get<Student[]>(`/api/courses/${selectedCourseId}/students`);
-        if (res.success && res.data) {
-          // Initialize students with default status
-          const studentsWithStatus = res.data.map((s) => ({
-            ...s,
+        const response = await apiClient<{ success: boolean; data?: { students: any[] } }>(
+          `/api/courses/${selectedCourseId}/students`
+        );
+        
+        if (response.success && response.data?.students) {
+          // Map API response to Student format
+          const studentsWithStatus = response.data.students.map((s: any) => ({
+            id: s.id,
+            userId: s.user?.id || s.userId || "",
+            name: s.user?.name || s.name || "Unknown",
+            email: s.user?.email || s.email || "",
+            enrollmentNo: s.enrollmentNo || s.studentId || "",
+            semester: s.semester || 1,
+            section: s.section || "",
             attendanceStatus: "PRESENT" as const,
           }));
           setStudents(studentsWithStatus);
@@ -131,11 +131,13 @@ export default function AttendancePage() {
           setStudents([]);
         }
       } catch (error) {
+        console.error("Failed to fetch students:", error);
         toast({
           variant: "destructive",
           title: "Error",
           description: "Failed to load students",
         });
+        setStudents([]);
       } finally {
         setLoading(false);
       }
@@ -146,37 +148,40 @@ export default function AttendancePage() {
     }
   }, [selectedCourseId, toast]);
 
-  // Load existing attendance for selected date and course
+  // Fetch existing attendance for selected date and course
+  const { data: attendanceData, refetch: refetchAttendance } = useTeacherAttendance({
+    courseId: selectedCourseId || undefined,
+    limit: 1000, // Get all attendance for the course
+  });
+
+  // Load existing attendance for selected date
   useEffect(() => {
-    const loadExistingAttendance = async () => {
-      if (!selectedCourseId || !selectedDate || students.length === 0) return;
+    if (!selectedCourseId || !selectedDate || students.length === 0 || !attendanceData) return;
 
-      const res = await listAttendance({ courseId: selectedCourseId });
-      
-      if (res.success && res.data) {
-        // Update student statuses based on existing attendance for selected date
-        const dateAttendance = (res.data as AttendanceRecord[]).filter((att: any) => {
-          const attDate = new Date(att.date).toISOString().split("T")[0];
-          return attDate === selectedDate;
-        });
+    // Filter attendance for the selected date
+    const dateAttendance = attendanceData.items.filter((att) => {
+      const attDate = new Date(att.date).toISOString().split("T")[0];
+      return attDate === selectedDate;
+    });
 
-        setStudents((prev) =>
-          prev.map((student) => {
-            const existing = dateAttendance.find((att: any) => att.studentId === student.id);
-            return {
-              ...student,
-              attendanceStatus: existing ? existing.status : ("PRESENT" as const),
-            };
-          })
-        );
-      }
-    };
+    // Update student statuses based on existing attendance
+    setStudents((prev) =>
+      prev.map((student) => {
+        const existing = dateAttendance.find((att) => att.studentId === student.id);
+        return {
+          ...student,
+          attendanceStatus: existing ? existing.status : ("PRESENT" as const),
+        };
+      })
+    );
+  }, [selectedCourseId, selectedDate, students.length, attendanceData]);
 
-    if (selectedCourseId && selectedDate && students.length > 0) {
-      loadExistingAttendance();
+  // Auto-select first course
+  useEffect(() => {
+    if (courses.length > 0 && !selectedCourseId) {
+      setSelectedCourseId(courses[0].id);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCourseId, selectedDate, students.length]);
+  }, [courses, selectedCourseId]);
 
   // Filter students based on search
   const filteredStudents = useMemo(() => {
@@ -274,11 +279,10 @@ export default function AttendancePage() {
       return;
     }
 
-    setSaving(true);
     try {
-      // Mark attendance for all students
+      // Mark attendance for all students using the mutation hook
       const promises = students.map((student) =>
-        createAttendance({
+        createAttendance.mutateAsync({
           courseId: selectedCourseId,
           studentId: student.id,
           status: student.attendanceStatus || "PRESENT",
@@ -286,34 +290,13 @@ export default function AttendancePage() {
         })
       );
 
-      const results = await Promise.allSettled(promises);
-
-      // Check for errors
-      const errors = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.success));
+      await Promise.allSettled(promises);
       
-      if (errors.length > 0) {
-        toast({
-          variant: "destructive",
-          title: "Partial Success",
-          description: `Failed to mark attendance for ${errors.length} student(s)`,
-        });
-      } else {
-        toast({
-          title: "Success",
-          description: "Attendance marked successfully",
-        });
-      }
-
-      // Reload attendance list
-      await listAttendance({ courseId: selectedCourseId });
+      // Refetch attendance data
+      await refetchAttendance();
     } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to save attendance",
-      });
-    } finally {
-      setSaving(false);
+      // Error handling is done by the mutation hook
+      console.error("Error saving attendance:", error);
     }
   };
 
@@ -351,8 +334,8 @@ export default function AttendancePage() {
               <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
-            <Button onClick={handleSaveAttendance} disabled={saving || !selectedCourseId || students.length === 0}>
-              {saving ? (
+            <Button onClick={handleSaveAttendance} disabled={createAttendance.isPending || !selectedCourseId || students.length === 0}>
+              {createAttendance.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Saving...
@@ -383,7 +366,7 @@ export default function AttendancePage() {
             <Select
               value={selectedCourseId}
               onValueChange={(val) => setSelectedCourseId(val)}
-              disabled={loading || courses.length === 0}
+              disabled={coursesLoading || courses.length === 0}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select a course" />

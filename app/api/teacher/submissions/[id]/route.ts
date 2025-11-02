@@ -4,14 +4,16 @@ import { apiError, apiSuccess } from '@/lib/api/response';
 import { requireTeacher } from '@/lib/api/teacherAuth';
 import { gradeSubmissionSchema } from '@/lib/validation/submission';
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const teacherAuth = await requireTeacher();
   if (!teacherAuth.ok) return teacherAuth.response;
 
   try {
+    const { id: submissionId } = await params;
+    
     // Verify ownership via assignment -> course
     const existing = await prisma.submission.findUnique({
-      where: { id: params.id },
+      where: { id: submissionId },
       include: {
         assignment: {
           include: {
@@ -38,7 +40,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
 
     const updated = await prisma.submission.update({
-      where: { id: params.id },
+      where: { id: submissionId },
       data: {
         grade: parsed.data.grade ?? undefined,
       },

@@ -4,13 +4,15 @@ import { apiError, apiSuccess } from '@/lib/api/response';
 import { requireTeacher } from '@/lib/api/teacherAuth';
 import { updateAssignmentSchema } from '@/lib/validation/assignment';
 
-export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const teacherAuth = await requireTeacher();
   if (!teacherAuth.ok) return teacherAuth.response;
 
   try {
+    const { id: assignmentId } = await params;
+    
     const assignment = await prisma.assignment.findUnique({
-      where: { id: params.id },
+      where: { id: assignmentId },
       include: {
         course: {
           include: { teacher: { select: { id: true } } },
@@ -34,14 +36,16 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
   }
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const teacherAuth = await requireTeacher();
   if (!teacherAuth.ok) return teacherAuth.response;
 
   try {
+    const { id: assignmentId } = await params;
+    
     // Verify ownership
     const existing = await prisma.assignment.findUnique({
-      where: { id: params.id },
+      where: { id: assignmentId },
       include: {
         course: {
           include: { teacher: { select: { id: true } } },
@@ -64,7 +68,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
 
     const updated = await prisma.assignment.update({
-      where: { id: params.id },
+      where: { id: assignmentId },
       data: {
         title: parsed.data.title ?? undefined,
         description: parsed.data.description ?? undefined,
@@ -82,14 +86,16 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const teacherAuth = await requireTeacher();
   if (!teacherAuth.ok) return teacherAuth.response;
 
   try {
+    const { id: assignmentId } = await params;
+
     // Verify ownership
     const existing = await prisma.assignment.findUnique({
-      where: { id: params.id },
+      where: { id: assignmentId },
       include: {
         course: {
           include: { teacher: { select: { id: true } } },
@@ -105,8 +111,14 @@ export async function DELETE(_request: NextRequest, { params }: { params: { id: 
       return NextResponse.json(apiError('Forbidden: You can only delete your own assignments'), { status: 403 });
     }
 
-    await prisma.assignment.delete({ where: { id: params.id } });
-    return NextResponse.json(apiSuccess({ id: params.id }), { status: 200 });
+    // Delete related submissions first
+    await prisma.submission.deleteMany({
+      where: { assignmentId },
+    });
+
+    // Now delete the assignment
+    await prisma.assignment.delete({ where: { id: assignmentId } });
+    return NextResponse.json(apiSuccess({ id: assignmentId }), { status: 200 });
   } catch (error: any) {
     if (error?.code === 'P2025') {
       return NextResponse.json(apiError('Assignment not found'), { status: 404 });

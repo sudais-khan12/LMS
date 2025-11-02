@@ -3,8 +3,10 @@ import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
 import { Role } from '@prisma/client';
 
-export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id: courseId } = await params;
+    
     const session = await auth();
     if (!session || !session.user) {
       return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
@@ -14,7 +16,7 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
 
     // Check course exists and access
     const course = await prisma.course.findUnique({
-      where: { id: params.id },
+      where: { id: courseId },
       include: {
         teacher: true,
         attendance: {
@@ -68,7 +70,7 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
 
     const students = Array.from(studentMap.values());
 
-    return NextResponse.json({ success: true, message: 'Students fetched successfully', data: students }, { status: 200 });
+    return NextResponse.json({ success: true, message: 'Students fetched successfully', data: { students } }, { status: 200 });
   } catch (error) {
     console.error('GET /api/courses/:id/students error:', error);
     return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });

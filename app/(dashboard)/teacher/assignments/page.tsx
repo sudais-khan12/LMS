@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,14 +26,21 @@ import { DialogTrigger } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import {
-  detailedAssignmentsData,
-  detailedClassesData,
   glassStyles,
   animationClasses,
-  AssignmentWithDetails,
-  AssignmentSubmission,
-  detailedClassesData as classesData,
 } from "@/config/teacher-constants";
+import {
+  useTeacherAssignments,
+  useCreateTeacherAssignment,
+  useUpdateTeacherAssignment,
+  useDeleteTeacherAssignment,
+  useTeacherClasses,
+  useTeacherSubmissions,
+  useGradeTeacherSubmission,
+  type TeacherAssignment,
+  type TeacherClass,
+  type TeacherSubmission,
+} from "@/lib/hooks/api/teacher";
 import {
   FileText,
   Calendar,
@@ -51,16 +58,60 @@ import {
   Send,
   X,
   ArrowUpDown,
+  Loader2,
 } from "lucide-react";
+
+// Local types for UI display
+interface AssignmentWithDetails {
+  id: string;
+  title: string;
+  subject: string;
+  classId: string;
+  classCode: string;
+  description?: string;
+  maxPoints: number;
+  dueDate: string;
+  status: "Assigned" | "Submitted" | "Graded" | "Late";
+  creationDate: string;
+  totalStudents: number;
+  submissions: Array<{
+    id: string;
+    studentId: string;
+    studentName: string;
+    studentEmail: string;
+    status: "Not Submitted" | "Submitted" | "Graded";
+    maxPoints: number;
+    grade?: number;
+    feedback?: string;
+    submissionDate?: string;
+    attachments: any[];
+  }>;
+}
 
 export default function AssignmentsPage() {
   const { toast } = useToast();
-  const [assignments, setAssignments] = useState<AssignmentWithDetails[]>(
-    detailedAssignmentsData
+
+  // API hooks
+  const {
+    data: assignmentsData,
+    isLoading: assignmentsLoading,
+    refetch: refetchAssignments,
+  } = useTeacherAssignments({ limit: 1000 });
+  const { data: coursesData } = useTeacherClasses({ limit: 100 });
+  const createAssignment = useCreateTeacherAssignment();
+  const updateAssignment = useUpdateTeacherAssignment();
+  const deleteAssignment = useDeleteTeacherAssignment();
+  const gradeSubmission = useGradeTeacherSubmission();
+
+  const apiAssignments = assignmentsData?.items || [];
+  const courses = coursesData?.items || [];
+
+  // Fetch submissions when viewing an assignment
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
+  const { data: submissionsData, refetch: refetchSubmissions } = useTeacherSubmissions(
+    selectedAssignmentId || undefined
   );
-  const [filteredAssignments, setFilteredAssignments] = useState<
-    AssignmentWithDetails[]
-  >(detailedAssignmentsData);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [classFilter, setClassFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -76,14 +127,13 @@ export default function AssignmentsPage() {
   const [selectedAssignment, setSelectedAssignment] =
     useState<AssignmentWithDetails | null>(null);
   const [selectedSubmission, setSelectedSubmission] =
-    useState<AssignmentSubmission | null>(null);
+    useState<{ id: string; studentName: string; maxPoints: number } | null>(null);
 
   // Form states
   const [formData, setFormData] = useState({
     title: "",
-    classId: "",
+    courseId: "",
     description: "",
-    maxPoints: "",
     dueDate: "",
   });
 
@@ -91,6 +141,34 @@ export default function AssignmentsPage() {
     grade: "",
     feedback: "",
   });
+
+  // Map API assignments to UI format
+  const assignments = useMemo(() => {
+    return apiAssignments.map((assignment: TeacherAssignment) => {
+      const dueDate = new Date(assignment.dueDate);
+      const isOverdue = dueDate < new Date();
+      const hasSubmissions = (assignment._count?.submissions || 0) > 0;
+      
+      let status: "Assigned" | "Submitted" | "Graded" | "Late" = "Assigned";
+      if (isOverdue && !hasSubmissions) status = "Late";
+      else if (hasSubmissions) status = "Submitted";
+      
+      return {
+        id: assignment.id,
+        title: assignment.title,
+        subject: assignment.course?.title || "Unknown",
+        classId: assignment.courseId,
+        classCode: assignment.course?.code || "",
+        description: assignment.description || "",
+        maxPoints: 100, // Default max points (not stored in DB)
+        dueDate: assignment.dueDate,
+        status,
+        creationDate: assignment.dueDate, // Use dueDate as creation date estimate
+        totalStudents: 0, // Will be fetched from course students
+        submissions: [],
+      } as AssignmentWithDetails;
+    });
+  }, [apiAssignments]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -123,7 +201,7 @@ export default function AssignmentsPage() {
   };
 
   // Filter and sort assignments
-  useEffect(() => {
+  const filteredAssignments = useMemo(() => {
     let filtered = assignments;
 
     if (searchQuery) {
@@ -135,7 +213,7 @@ export default function AssignmentsPage() {
     }
 
     if (classFilter !== "all") {
-      filtered = filtered.filter((a) => a.classId === Number(classFilter));
+      filtered = filtered.filter((a) => a.classId === classFilter);
     }
 
     if (statusFilter !== "all") {
@@ -143,7 +221,10 @@ export default function AssignmentsPage() {
     }
 
     if (dueDateFilter) {
-      filtered = filtered.filter((a) => a.dueDate === dueDateFilter);
+      filtered = filtered.filter((a) => {
+        const assignmentDate = new Date(a.dueDate).toISOString().split("T")[0];
+        return assignmentDate === dueDateFilter;
+      });
     }
 
     // Sort
@@ -159,7 +240,7 @@ export default function AssignmentsPage() {
       );
     }
 
-    setFilteredAssignments(filtered);
+    return filtered;
   }, [
     searchQuery,
     classFilter,
@@ -170,8 +251,8 @@ export default function AssignmentsPage() {
   ]);
 
   // Create assignment
-  const handleCreateAssignment = () => {
-    if (!formData.title || !formData.classId || !formData.dueDate) {
+  const handleCreateAssignment = async () => {
+    if (!formData.title || !formData.courseId || !formData.dueDate) {
       toast({
         title: "Validation Error",
         description: "Please fill in all required fields",
@@ -180,47 +261,24 @@ export default function AssignmentsPage() {
       return;
     }
 
-    const selectedClass = detailedClassesData.find(
-      (c) => c.id === Number(formData.classId)
-    );
-    if (!selectedClass) return;
-
-    const newAssignment: AssignmentWithDetails = {
-      id: Math.max(...assignments.map((a) => a.id)) + 1,
-      title: formData.title,
-      subject: selectedClass.subject,
-      classId: Number(formData.classId),
-      classCode: selectedClass.classCode,
-      description: formData.description,
-      maxPoints: Number(formData.maxPoints) || 100,
-      dueDate: formData.dueDate,
-      status: "Assigned",
-      creationDate: new Date().toISOString().split("T")[0],
-      totalStudents: selectedClass.students.length,
-      submissions: selectedClass.students.map((s, idx) => ({
-        id: idx + 1,
-        studentId: s.id,
-        studentName: s.name,
-        studentEmail: s.email,
-        status: "Not Submitted",
-        maxPoints: Number(formData.maxPoints) || 100,
-        attachments: [],
-      })),
-    };
-
-    setAssignments([...assignments, newAssignment]);
-    setFilteredAssignments([...assignments, newAssignment]);
-    setIsCreateModalOpen(false);
-    resetForm();
-    toast({
-      title: "Success",
-      description: "Assignment created successfully",
-    });
+    try {
+      await createAssignment.mutateAsync({
+        title: formData.title,
+        courseId: formData.courseId,
+        description: formData.description,
+        dueDate: formData.dueDate,
+      });
+      setIsCreateModalOpen(false);
+      resetForm();
+      await refetchAssignments();
+    } catch (error) {
+      // Error handled by mutation hook
+    }
   };
 
   // Edit assignment
-  const handleEditAssignment = () => {
-    if (!selectedAssignment || !formData.title || !formData.classId) {
+  const handleEditAssignment = async () => {
+    if (!selectedAssignment || !formData.title || !formData.dueDate) {
       toast({
         title: "Validation Error",
         description: "Please fill in all required fields",
@@ -229,174 +287,93 @@ export default function AssignmentsPage() {
       return;
     }
 
-    const updatedAssignments = assignments.map((a) =>
-      a.id === selectedAssignment.id
-        ? {
-            ...a,
-            title: formData.title,
-            description: formData.description,
-            maxPoints: Number(formData.maxPoints) || 100,
-            dueDate: formData.dueDate,
-          }
-        : a
-    );
-
-    setAssignments(updatedAssignments);
-    setFilteredAssignments(updatedAssignments);
-    setIsEditModalOpen(false);
-    resetForm();
-    setSelectedAssignment(null);
-    toast({
-      title: "Success",
-      description: "Assignment updated successfully",
-    });
+    try {
+      await updateAssignment.mutateAsync({
+        id: selectedAssignment.id,
+        title: formData.title,
+        description: formData.description,
+        dueDate: formData.dueDate,
+      });
+      setIsEditModalOpen(false);
+      resetForm();
+      setSelectedAssignment(null);
+      await refetchAssignments();
+    } catch (error) {
+      // Error handled by mutation hook
+    }
   };
 
   // Delete assignment
-  const handleDeleteAssignment = () => {
+  const handleDeleteAssignment = async () => {
     if (!selectedAssignment) return;
 
-    const updatedAssignments = assignments.filter(
-      (a) => a.id !== selectedAssignment.id
-    );
-    setAssignments(updatedAssignments);
-    setFilteredAssignments(updatedAssignments);
-    setIsDeleteModalOpen(false);
-    setSelectedAssignment(null);
-    toast({
-      title: "Success",
-      description: "Assignment deleted successfully",
-    });
+    try {
+      await deleteAssignment.mutateAsync(selectedAssignment.id);
+      setIsDeleteModalOpen(false);
+      setSelectedAssignment(null);
+      await refetchAssignments();
+    } catch (error) {
+      // Error handled by mutation hook
+    }
   };
 
-  // Update submission status
-  const handleUpdateSubmission = (
-    submissionId: number,
+  // Update submission status (note: this is handled via API when grading)
+  const handleUpdateSubmission = async (
+    submissionId: string,
     status: "Not Submitted" | "Submitted" | "Graded"
   ) => {
-    if (!selectedAssignment) return;
-
-    const updatedAssignments = assignments.map((a) =>
-      a.id === selectedAssignment.id
-        ? {
-            ...a,
-            submissions: a.submissions.map((s) =>
-              s.id === submissionId
-                ? {
-                    ...s,
-                    status,
-                    submissionDate:
-                      status === "Submitted"
-                        ? new Date().toISOString().split("T")[0]
-                        : s.submissionDate,
-                  }
-                : s
-            ),
-          }
-        : a
-    );
-
-    setAssignments(updatedAssignments);
-    setFilteredAssignments(updatedAssignments);
-
-    if (selectedAssignment) {
-      const updated = updatedAssignments.find(
-        (a) => a.id === selectedAssignment.id
-      );
-      if (updated) setSelectedAssignment(updated);
-    }
-
+    // For now, this is mainly used for grading which uses the gradeSubmission hook
+    // Status updates happen when grading via the API
     toast({
-      title: "Success",
-      description: "Submission status updated",
+      title: "Info",
+      description: "Please use the Grade button to update submission status",
     });
   };
 
   // Open grade modal
-  const openGradeModal = (submission: AssignmentSubmission) => {
+  const openGradeModal = (submission: { id: string; studentName: string; grade?: number; maxPoints: number }) => {
     setSelectedSubmission(submission);
     setGradeFormData({
       grade: submission.grade?.toString() || "",
-      feedback: submission.feedback || "",
+      feedback: "", // Feedback not stored in submission model currently
     });
     setIsGradeModalOpen(true);
   };
 
   // Save grade
-  const handleSaveGrade = () => {
-    if (!selectedAssignment || !selectedSubmission) return;
-
-    const updatedAssignments = assignments.map((a) =>
-      a.id === selectedAssignment.id
-        ? {
-            ...a,
-            submissions: a.submissions.map((s) =>
-              s.id === selectedSubmission.id
-                ? {
-                    ...s,
-                    grade: Number(gradeFormData.grade),
-                    feedback: gradeFormData.feedback,
-                    status: "Graded" as const,
-                  }
-                : s
-            ),
-            status: a.status === "Assigned" ? ("Submitted" as const) : a.status,
-          }
-        : a
-    );
-
-    setAssignments(updatedAssignments);
-    setFilteredAssignments(updatedAssignments);
-    setIsGradeModalOpen(false);
-    resetGradeForm();
-
-    if (selectedAssignment) {
-      const updated = updatedAssignments.find(
-        (a) => a.id === selectedAssignment.id
-      );
-      if (updated) setSelectedAssignment(updated);
+  const handleSaveGrade = async () => {
+    if (!selectedSubmission || !gradeFormData.grade) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a grade",
+        variant: "destructive",
+      });
+      return;
     }
 
-    toast({
-      title: "Success",
-      description: "Grade saved successfully",
-    });
+    try {
+      await gradeSubmission.mutateAsync({
+        id: selectedSubmission.id,
+        grade: Number(gradeFormData.grade),
+        feedback: gradeFormData.feedback,
+      });
+      setIsGradeModalOpen(false);
+      resetGradeForm();
+      await refetchSubmissions();
+      if (selectedAssignment) {
+        // Refresh the assignment to get updated submission count
+        await refetchAssignments();
+      }
+    } catch (error) {
+      // Error handled by mutation hook
+    }
   };
 
-  // Bulk mark as submitted
+  // Bulk mark as submitted (note: this is a UI-only feature, submissions are created by students)
   const handleBulkMarkSubmitted = () => {
-    if (!selectedAssignment) return;
-
-    const updatedAssignments = assignments.map((a) =>
-      a.id === selectedAssignment.id
-        ? {
-            ...a,
-            submissions: a.submissions.map((s) =>
-              s.status === "Not Submitted"
-                ? {
-                    ...s,
-                    status: "Submitted" as const,
-                    submissionDate: new Date().toISOString().split("T")[0],
-                  }
-                : s
-            ),
-          }
-        : a
-    );
-
-    setAssignments(updatedAssignments);
-    setFilteredAssignments(updatedAssignments);
-
-    if (selectedAssignment) {
-      const updated = updatedAssignments.find(
-        (a) => a.id === selectedAssignment.id
-      );
-      if (updated) setSelectedAssignment(updated);
-    }
-
     toast({
-      title: "Success",
-      description: "Marked all students as submitted",
+      title: "Info",
+      description: "Students submit their own assignments. This feature is not available.",
     });
   };
 
@@ -405,18 +382,20 @@ export default function AssignmentsPage() {
     setSelectedAssignment(assignment);
     setFormData({
       title: assignment.title,
-      classId: assignment.classId.toString(),
+      courseId: assignment.classId,
       description: assignment.description,
-      maxPoints: assignment.maxPoints.toString(),
-      dueDate: assignment.dueDate,
+      dueDate: new Date(assignment.dueDate).toISOString().split("T")[0],
     });
     setIsEditModalOpen(true);
   };
 
   // Open view modal
-  const openViewModal = (assignment: AssignmentWithDetails) => {
+  const openViewModal = async (assignment: AssignmentWithDetails) => {
     setSelectedAssignment(assignment);
+    setSelectedAssignmentId(assignment.id);
     setIsViewModalOpen(true);
+    // Fetch submissions for this assignment
+    await refetchSubmissions();
   };
 
   // Open delete modal
@@ -428,9 +407,8 @@ export default function AssignmentsPage() {
   const resetForm = () => {
     setFormData({
       title: "",
-      classId: "",
+      courseId: "",
       description: "",
-      maxPoints: "",
       dueDate: "",
     });
   };
@@ -443,7 +421,23 @@ export default function AssignmentsPage() {
     setSelectedSubmission(null);
   };
 
-  const uniqueClasses = detailedClassesData;
+  // Map submissions to UI format
+  const mapSubmissionsToUI = (assignmentId: string) => {
+    if (!submissionsData || selectedAssignmentId !== assignmentId) return [];
+    
+    return submissionsData.items.map((sub: TeacherSubmission) => ({
+      id: sub.id,
+      studentId: sub.studentId,
+      studentName: sub.student?.user?.name || "Unknown Student",
+      studentEmail: sub.student?.user?.email || "",
+      status: sub.grade ? ("Graded" as const) : ("Submitted" as const),
+      maxPoints: 100,
+      grade: sub.grade,
+      feedback: sub.feedback,
+      submissionDate: sub.submittedAt ? new Date(sub.submittedAt).toISOString().split("T")[0] : undefined,
+      attachments: [],
+    }));
+  };
 
   return (
     <div className="space-y-6">
@@ -487,9 +481,9 @@ export default function AssignmentsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Classes</SelectItem>
-              {uniqueClasses.map((classItem) => (
-                <SelectItem key={classItem.id} value={classItem.id.toString()}>
-                  {classItem.subject}
+              {courses.map((course) => (
+                <SelectItem key={course.id} value={course.id}>
+                  {course.title} - {course.code}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -533,32 +527,44 @@ export default function AssignmentsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border/50">
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Assignment
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Subject
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Due Date
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Status
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Submissions
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredAssignments.map((assignment) => (
+          {assignmentsLoading ? (
+            <div className="text-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+              <p className="text-muted-foreground mt-4">Loading assignments...</p>
+            </div>
+          ) : filteredAssignments.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground">
+                {assignments.length === 0 ? "No assignments created yet" : "No assignments found"}
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border/50">
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Assignment
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Subject
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Due Date
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Status
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Submissions
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredAssignments.map((assignment) => (
                   <tr
                     key={assignment.id}
                     className="border-b border-border/30 hover:bg-muted/30 transition-colors duration-200"
@@ -602,14 +608,10 @@ export default function AssignmentsPage() {
                       <div className="flex items-center gap-2 text-sm">
                         <Users className="h-4 w-4 text-muted-foreground" />
                         <span className="text-foreground">
-                          {
-                            assignment.submissions.filter(
-                              (s) => s.status !== "Not Submitted"
-                            ).length
-                          }
+                          {apiAssignments.find((a) => a.id === assignment.id)?._count?.submissions || 0}
                         </span>
                         <span className="text-muted-foreground">
-                          / {assignment.totalStudents}
+                          / {assignment.totalStudents || "?"}
                         </span>
                       </div>
                     </td>
@@ -645,10 +647,11 @@ export default function AssignmentsPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -787,39 +790,27 @@ export default function AssignmentsPage() {
               />
             </div>
             <div className="col-span-2 space-y-2">
-              <Label htmlFor="class">Class *</Label>
+              <Label htmlFor="course">Course *</Label>
               <Select
-                value={formData.classId}
+                value={formData.courseId}
                 onValueChange={(value) =>
-                  setFormData({ ...formData, classId: value })
+                  setFormData({ ...formData, courseId: value })
                 }
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select class" />
+                  <SelectValue placeholder="Select course" />
                 </SelectTrigger>
                 <SelectContent>
-                  {uniqueClasses.map((classItem) => (
+                  {courses.map((course) => (
                     <SelectItem
-                      key={classItem.id}
-                      value={classItem.id.toString()}
+                      key={course.id}
+                      value={course.id}
                     >
-                      {classItem.subject} - {classItem.classCode}
+                      {course.title} - {course.code}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="points">Max Points</Label>
-              <Input
-                id="points"
-                type="number"
-                value={formData.maxPoints}
-                onChange={(e) =>
-                  setFormData({ ...formData, maxPoints: e.target.value })
-                }
-                placeholder="100"
-              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="dueDate">Due Date *</Label>
@@ -852,7 +843,16 @@ export default function AssignmentsPage() {
             >
               Cancel
             </Button>
-            <Button onClick={handleCreateAssignment}>Create</Button>
+            <Button onClick={handleCreateAssignment} disabled={createAssignment.isPending}>
+              {createAssignment.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                "Create"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -876,18 +876,6 @@ export default function AssignmentsPage() {
                   setFormData({ ...formData, title: e.target.value })
                 }
                 placeholder="Enter title"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-points">Max Points</Label>
-              <Input
-                id="edit-points"
-                type="number"
-                value={formData.maxPoints}
-                onChange={(e) =>
-                  setFormData({ ...formData, maxPoints: e.target.value })
-                }
-                placeholder="100"
               />
             </div>
             <div className="space-y-2">
@@ -918,7 +906,16 @@ export default function AssignmentsPage() {
             <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleEditAssignment}>Update</Button>
+            <Button onClick={handleEditAssignment} disabled={updateAssignment.isPending}>
+              {updateAssignment.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                "Update"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -993,71 +990,66 @@ export default function AssignmentsPage() {
               {/* Submissions Table */}
               <div>
                 <h3 className="text-lg font-semibold mb-4">
-                  Submissions ({selectedAssignment.submissions.length})
+                  Submissions ({mapSubmissionsToUI(selectedAssignment.id).length})
                 </h3>
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full">
-                    <thead className="bg-muted/50">
-                      <tr>
-                        <th className="text-left p-3 text-sm font-medium">
-                          Student
-                        </th>
-                        <th className="text-left p-3 text-sm font-medium">
-                          Status
-                        </th>
-                        <th className="text-left p-3 text-sm font-medium">
-                          Submission Date
-                        </th>
-                        <th className="text-left p-3 text-sm font-medium">
-                          Grade
-                        </th>
-                        <th className="text-left p-3 text-sm font-medium">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedAssignment.submissions.map((submission) => (
-                        <tr key={submission.id} className="border-t">
-                          <td className="p-3">
-                            <div>
-                              <div className="text-sm font-medium">
-                                {submission.studentName}
+                {!submissionsData && selectedAssignmentId === selectedAssignment.id ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
+                    Loading submissions...
+                  </div>
+                ) : mapSubmissionsToUI(selectedAssignment.id).length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No submissions for this assignment yet
+                  </div>
+                ) : (
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left p-3 text-sm font-medium">
+                            Student
+                          </th>
+                          <th className="text-left p-3 text-sm font-medium">
+                            Status
+                          </th>
+                          <th className="text-left p-3 text-sm font-medium">
+                            Submission Date
+                          </th>
+                          <th className="text-left p-3 text-sm font-medium">
+                            Grade
+                          </th>
+                          <th className="text-left p-3 text-sm font-medium">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mapSubmissionsToUI(selectedAssignment.id).map((submission) => (
+                          <tr key={submission.id} className="border-t">
+                            <td className="p-3">
+                              <div>
+                                <div className="text-sm font-medium">
+                                  {submission.studentName}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {submission.studentEmail}
+                                </div>
                               </div>
-                              <div className="text-xs text-muted-foreground">
-                                {submission.studentEmail}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="p-3">
-                            <Badge variant="outline">{submission.status}</Badge>
-                          </td>
-                          <td className="p-3 text-sm">
-                            {submission.submissionDate || "N/A"}
-                          </td>
-                          <td className="p-3 text-sm">
-                            {submission.grade !== undefined
-                              ? `${submission.grade}/${submission.maxPoints}`
-                              : "-"}
-                          </td>
-                          <td className="p-3">
-                            <div className="flex gap-2">
-                              {submission.status !== "Graded" && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() =>
-                                    handleUpdateSubmission(
-                                      submission.id,
-                                      "Submitted"
-                                    )
-                                  }
-                                >
-                                  Mark Submitted
-                                </Button>
-                              )}
-                              {submission.status !== "Graded" &&
-                                submission.status !== "Not Submitted" && (
+                            </td>
+                            <td className="p-3">
+                              <Badge variant="outline">{submission.status}</Badge>
+                            </td>
+                            <td className="p-3 text-sm">
+                              {submission.submissionDate || "N/A"}
+                            </td>
+                            <td className="p-3 text-sm">
+                              {submission.grade !== undefined
+                                ? `${submission.grade}/${submission.maxPoints}`
+                                : "-"}
+                            </td>
+                            <td className="p-3">
+                              <div className="flex gap-2">
+                                {submission.status !== "Graded" && (
                                   <Button
                                     size="sm"
                                     onClick={() => openGradeModal(submission)}
@@ -1066,13 +1058,14 @@ export default function AssignmentsPage() {
                                     Grade
                                   </Button>
                                 )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1099,8 +1092,19 @@ export default function AssignmentsPage() {
             >
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleDeleteAssignment}>
-              Delete
+            <Button 
+              variant="destructive" 
+              onClick={handleDeleteAssignment}
+              disabled={deleteAssignment.isPending}
+            >
+              {deleteAssignment.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1153,7 +1157,16 @@ export default function AssignmentsPage() {
             >
               Cancel
             </Button>
-            <Button onClick={handleSaveGrade}>Save Grade</Button>
+            <Button onClick={handleSaveGrade} disabled={gradeSubmission.isPending}>
+              {gradeSubmission.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save Grade"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,10 +23,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  detailedClassesData,
   glassStyles,
   animationClasses,
-  ClassWithDetails,
 } from "@/config/teacher-constants";
 import { cn } from "@/lib/utils";
 import {
@@ -39,23 +37,77 @@ import {
   Trash2,
   Plus,
   X,
+  AlertCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  useTeacherClasses,
+  useCreateTeacherClass,
+  useUpdateTeacherClass,
+  useDeleteTeacherClass,
+  type TeacherClass,
+} from "@/lib/hooks/api/teacher";
+import { TableSkeleton, CardSkeleton } from "@/components/ui/loading-skeleton";
+import { apiClient } from "@/lib/apiClient";
+
+// Local type for UI display
+interface ClassWithDetails {
+  id: string;
+  subject: string;
+  classCode: string;
+  description?: string;
+  schedule?: string;
+  room?: string;
+  grade?: string;
+  section?: string;
+  status: "Active" | "Inactive" | "Completed";
+  totalStudents: number;
+  students: Array<{ id: string; name: string; studentId: string; email: string }>;
+  assignments: Array<{ id: string; title: string; dueDate: string; status: string; submissions: number }>;
+}
 
 export default function MyClassesPage() {
   const { toast } = useToast();
-  const [classes, setClasses] =
-    useState<ClassWithDetails[]>(detailedClassesData);
-  const [filteredClasses, setFilteredClasses] =
-    useState<ClassWithDetails[]>(detailedClassesData);
+
+  // API hooks
+  const {
+    data: classesData,
+    isLoading,
+    error,
+    refetch,
+  } = useTeacherClasses({ limit: 100 });
+  const createClass = useCreateTeacherClass();
+  const updateClass = useUpdateTeacherClass();
+  const deleteClass = useDeleteTeacherClass();
+
+  const apiClasses = classesData?.items || [];
+
+  // Map API classes to UI format - using _count for totalStudents
+  const classes = useMemo(() => {
+    return apiClasses.map((cls: any) => ({
+      id: cls.id,
+      subject: cls.title,
+      classCode: cls.code,
+      description: cls.description || "",
+      schedule: cls.schedule || "",
+      room: cls.room || "",
+      grade: cls.grade || "",
+      section: cls.section || "",
+      status: (cls.status || "Active") as "Active" | "Inactive" | "Completed",
+      totalStudents: cls._count?.attendance || 0,
+      students: [],
+      assignments: [],
+    }));
+  }, [apiClasses]);
+
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
   const [selectedClass, setSelectedClass] = useState<ClassWithDetails | null>(
     null
   );
+  const [loadingCourseDetails, setLoadingCourseDetails] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [gradeFilter, setGradeFilter] = useState<string>("all");
   const [sectionFilter, setSectionFilter] = useState<string>("all");
@@ -81,12 +133,6 @@ export default function MyClassesPage() {
     status: "Active",
   });
 
-  const [studentFormData, setStudentFormData] = useState({
-    name: "",
-    studentId: "",
-    email: "",
-  });
-
   const getStatusColor = (status: string) => {
     switch (status) {
       case "Active":
@@ -101,7 +147,7 @@ export default function MyClassesPage() {
   };
 
   // Filter classes based on search, grade, and section
-  useEffect(() => {
+  const filteredClasses = useMemo(() => {
     let filtered = classes;
 
     if (searchQuery) {
@@ -120,11 +166,11 @@ export default function MyClassesPage() {
       filtered = filtered.filter((c) => c.section === sectionFilter);
     }
 
-    setFilteredClasses(filtered);
+    return filtered;
   }, [searchQuery, gradeFilter, sectionFilter, classes]);
 
   // Create new class
-  const handleCreateClass = () => {
+  const handleCreateClass = async () => {
     if (!formData.subject || !formData.classCode) {
       toast({
         title: "Validation Error",
@@ -134,33 +180,22 @@ export default function MyClassesPage() {
       return;
     }
 
-    const newClass: ClassWithDetails = {
-      id: Math.max(...classes.map((c) => c.id)) + 1,
-      subject: formData.subject,
-      classCode: formData.classCode,
-      description: formData.description,
-      schedule: formData.schedule,
-      room: formData.room,
-      grade: formData.grade,
-      section: formData.section,
-      status: formData.status,
-      totalStudents: 0,
-      students: [],
-      assignments: [],
-    };
-
-    setClasses([...classes, newClass]);
-    setFilteredClasses([...classes, newClass]);
-    setIsCreateModalOpen(false);
-    resetForm();
-    toast({
-      title: "Success",
-      description: "Class created successfully",
-    });
+    try {
+      await createClass.mutateAsync({
+        title: formData.subject,
+        code: formData.classCode,
+        description: formData.description,
+      });
+      setIsCreateModalOpen(false);
+      resetForm();
+      await refetch();
+    } catch (error) {
+      // Error handled by mutation hook
+    }
   };
 
   // Edit class
-  const handleEditClass = () => {
+  const handleEditClass = async () => {
     if (!selectedClass || !formData.subject || !formData.classCode) {
       toast({
         title: "Validation Error",
@@ -170,110 +205,86 @@ export default function MyClassesPage() {
       return;
     }
 
-    const updatedClasses = classes.map((c) =>
-      c.id === selectedClass.id
-        ? {
-            ...selectedClass,
-            subject: formData.subject,
-            classCode: formData.classCode,
-            description: formData.description,
-            schedule: formData.schedule,
-            room: formData.room,
-            grade: formData.grade,
-            section: formData.section,
-            status: formData.status,
-          }
-        : c
-    );
-
-    setClasses(updatedClasses);
-    setFilteredClasses(updatedClasses);
-    setIsEditModalOpen(false);
-    resetForm();
-    setSelectedClass(null);
-    toast({
-      title: "Success",
-      description: "Class updated successfully",
-    });
+    try {
+      await updateClass.mutateAsync({
+        id: selectedClass.id,
+        title: formData.subject,
+        code: formData.classCode,
+        description: formData.description,
+      });
+      setIsEditModalOpen(false);
+      resetForm();
+      setSelectedClass(null);
+      await refetch();
+    } catch (error) {
+      // Error handled by mutation hook
+    }
   };
 
   // Delete class
-  const handleDeleteClass = () => {
+  const handleDeleteClass = async () => {
     if (!selectedClass) return;
 
-    const updatedClasses = classes.filter((c) => c.id !== selectedClass.id);
-    setClasses(updatedClasses);
-    setFilteredClasses(updatedClasses);
-    setIsDeleteModalOpen(false);
-    setSelectedClass(null);
-    toast({
-      title: "Success",
-      description: "Class deleted successfully",
-    });
+    try {
+      await deleteClass.mutateAsync(selectedClass.id);
+      setIsDeleteModalOpen(false);
+      setSelectedClass(null);
+      await refetch();
+    } catch (error) {
+      // Error handled by mutation hook
+    }
   };
 
-  // Add student to class
-  const handleAddStudent = () => {
-    if (!selectedClass || !studentFormData.name || !studentFormData.studentId) {
+  // Fetch course details (students and assignments) for view modal
+  const fetchCourseDetails = async (courseId: string) => {
+    setLoadingCourseDetails(true);
+    try {
+      // Fetch students for this course
+      const studentsResponse = await apiClient<{ success: boolean; data: any }>(
+        `/api/courses/${courseId}/students`
+      );
+      
+      // Fetch assignments for this course
+      const assignmentsResponse = await apiClient<{ success: boolean; data: any }>(
+        `/api/teacher/assignments?courseId=${courseId}&limit=100`
+      );
+
+      const students = studentsResponse.success && studentsResponse.data?.students
+        ? studentsResponse.data.students.map((s: any, index: number) => ({
+            id: s.id || String(index),
+            name: s.user?.name || s.name || "Unknown",
+            studentId: s.enrollmentNo || s.id || "",
+            email: s.user?.email || s.email || "",
+          }))
+        : [];
+
+      const assignments = assignmentsResponse.success && assignmentsResponse.data?.items
+        ? assignmentsResponse.data.items.map((a: any) => ({
+            id: a.id,
+            title: a.title,
+            dueDate: new Date(a.dueDate).toLocaleDateString(),
+            status: new Date(a.dueDate) < new Date() ? "Overdue" : "Active",
+            submissions: a._count?.submissions || 0,
+          }))
+        : [];
+
+      if (selectedClass) {
+        setSelectedClass({
+          ...selectedClass,
+          students,
+          assignments,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to fetch course details:", error);
       toast({
-        title: "Validation Error",
-        description: "Please fill in all required fields",
+        title: "Error",
+        description: "Failed to load course details",
         variant: "destructive",
       });
-      return;
+    } finally {
+      setLoadingCourseDetails(false);
     }
-
-    const newStudent = {
-      id: selectedClass.students.length + 1,
-      name: studentFormData.name,
-      studentId: studentFormData.studentId,
-      email: studentFormData.email,
-    };
-
-    const updatedClasses = classes.map((c) =>
-      c.id === selectedClass.id
-        ? {
-            ...c,
-            students: [...c.students, newStudent],
-            totalStudents: c.totalStudents + 1,
-          }
-        : c
-    );
-
-    setClasses(updatedClasses);
-    setFilteredClasses(updatedClasses);
-    setIsAddStudentModalOpen(false);
-    setStudentFormData({ name: "", studentId: "", email: "" });
-    setSelectedClass(updatedClasses.find((c) => c.id === selectedClass.id)!);
-    toast({
-      title: "Success",
-      description: "Student added successfully",
-    });
-  };
-
-  // Remove student from class
-  const handleRemoveStudent = (classId: number, studentId: number) => {
-    const updatedClasses = classes.map((c) =>
-      c.id === classId
-        ? {
-            ...c,
-            students: c.students.filter((s) => s.id !== studentId),
-            totalStudents: c.totalStudents - 1,
-          }
-        : c
-    );
-
-    setClasses(updatedClasses);
-    setFilteredClasses(updatedClasses);
-
-    if (selectedClass?.id === classId) {
-      setSelectedClass(updatedClasses.find((c) => c.id === classId)!);
-    }
-
-    toast({
-      title: "Success",
-      description: "Student removed successfully",
-    });
   };
 
   const resetForm = () => {
@@ -295,8 +306,8 @@ export default function MyClassesPage() {
       subject: classItem.subject,
       classCode: classItem.classCode,
       description: classItem.description || "",
-      schedule: classItem.schedule,
-      room: classItem.room,
+      schedule: classItem.schedule || "",
+      room: classItem.room || "",
       grade: classItem.grade || "",
       section: classItem.section || "",
       status: classItem.status || "Active",
@@ -304,18 +315,16 @@ export default function MyClassesPage() {
     setIsEditModalOpen(true);
   };
 
-  const openViewModal = (classItem: ClassWithDetails) => {
+  const openViewModal = async (classItem: ClassWithDetails) => {
     setSelectedClass(classItem);
     setIsViewModalOpen(true);
+    // Fetch course details when modal opens
+    await fetchCourseDetails(classItem.id);
   };
 
   const openDeleteModal = (classItem: ClassWithDetails) => {
     setSelectedClass(classItem);
     setIsDeleteModalOpen(true);
-  };
-
-  const openAddStudentModal = () => {
-    setIsAddStudentModalOpen(true);
   };
 
   // Get unique grades and sections
@@ -392,98 +401,120 @@ export default function MyClassesPage() {
       </div>
 
       {/* Classes Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredClasses.map((classItem) => (
-          <Card
-            key={classItem.id}
-            className={cn(
-              glassStyles.card,
-              glassStyles.cardHover,
-              "rounded-2xl shadow-glass-sm",
-              animationClasses.scaleIn
-            )}
-          >
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-primary/10">
-                    <BookOpen className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg font-semibold text-foreground">
-                      {classItem.subject}
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      {classItem.classCode}
-                    </p>
-                  </div>
-                </div>
-                <Badge
-                  variant="outline"
-                  className={cn("text-xs", getStatusColor(classItem.status))}
-                >
-                  {classItem.status}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {/* Class Info */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Users className="h-4 w-4" />
-                    <span>{classItem.totalStudents} students enrolled</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Clock className="h-4 w-4" />
-                    <span>{classItem.schedule}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <MapPin className="h-4 w-4" />
-                    <span>{classItem.room}</span>
-                  </div>
-                  {classItem.grade && (
-                    <div className="text-xs text-muted-foreground">
-                      {classItem.grade} - Section {classItem.section}
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <CardSkeleton key={i} />
+          ))}
+        </div>
+      ) : error ? (
+        <Card className={cn(glassStyles.card, "rounded-2xl shadow-glass-sm")}>
+          <CardContent className="p-12 text-center">
+            <div className="mx-auto w-24 h-24 bg-muted/30 rounded-full flex items-center justify-center mb-4">
+              <AlertCircle className="h-12 w-12 text-destructive" />
+            </div>
+            <h3 className="text-lg font-semibold text-foreground mb-2">
+              Failed to load classes
+            </h3>
+            <p className="text-muted-foreground">
+              {error instanceof Error ? error.message : "An error occurred"}
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredClasses.map((classItem) => (
+            <Card
+              key={classItem.id}
+              className={cn(
+                glassStyles.card,
+                glassStyles.cardHover,
+                "rounded-2xl shadow-glass-sm",
+                animationClasses.scaleIn
+              )}
+            >
+              <CardHeader>
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-primary/10">
+                      <BookOpen className="h-5 w-5 text-primary" />
                     </div>
-                  )}
+                    <div>
+                      <CardTitle className="text-lg font-semibold text-foreground">
+                        {classItem.subject}
+                      </CardTitle>
+                      <p className="text-sm text-muted-foreground">
+                        {classItem.classCode}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={cn("text-xs", getStatusColor(classItem.status))}
+                  >
+                    {classItem.status}
+                  </Badge>
                 </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {/* Class Info */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Users className="h-4 w-4" />
+                      <span>{classItem.totalStudents} students enrolled</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Clock className="h-4 w-4" />
+                      <span>{classItem.schedule}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <MapPin className="h-4 w-4" />
+                      <span>{classItem.room}</span>
+                    </div>
+                    {classItem.grade && (
+                      <div className="text-xs text-muted-foreground">
+                        {classItem.grade} - Section {classItem.section}
+                      </div>
+                    )}
+                  </div>
 
-                {/* Action Buttons */}
-                <div className="flex gap-2 pt-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 text-xs"
-                    onClick={() => openViewModal(classItem)}
-                  >
-                    <Eye className="h-3 w-3 mr-1" />
-                    View
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 text-xs"
-                    onClick={() => openEditModal(classItem)}
-                  >
-                    <Edit className="h-3 w-3 mr-1" />
-                    Edit
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 text-xs"
-                    onClick={() => openDeleteModal(classItem)}
-                  >
-                    <Trash2 className="h-3 w-3 mr-1" />
-                    Delete
-                  </Button>
+                  {/* Action Buttons */}
+                  <div className="flex gap-2 pt-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 text-xs"
+                      onClick={() => openViewModal(classItem)}
+                    >
+                      <Eye className="h-3 w-3 mr-1" />
+                      View
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 text-xs"
+                      onClick={() => openEditModal(classItem)}
+                    >
+                      <Edit className="h-3 w-3 mr-1" />
+                      Edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 text-xs"
+                      onClick={() => openDeleteModal(classItem)}
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" />
+                      Delete
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* Quick Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -810,60 +841,50 @@ export default function MyClassesPage() {
 
               {/* Students Section */}
               <div>
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-lg font-semibold">
-                      Students ({selectedClass.students.length})
-                    </h3>
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold">
+                    Students ({selectedClass.students.length})
+                  </h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Student enrollment is managed by administrators
+                  </p>
+                </div>
+                {loadingCourseDetails ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    Loading students...
                   </div>
-                  <Button size="sm" onClick={openAddStudentModal}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Student
-                  </Button>
-                </div>
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full">
-                    <thead className="bg-muted/50">
-                      <tr>
-                        <th className="text-left p-3 text-sm font-medium">
-                          Name
-                        </th>
-                        <th className="text-left p-3 text-sm font-medium">
-                          Student ID
-                        </th>
-                        <th className="text-left p-3 text-sm font-medium">
-                          Email
-                        </th>
-                        <th className="text-left p-3 text-sm font-medium">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedClass.students.map((student) => (
-                        <tr key={student.id} className="border-t">
-                          <td className="p-3 text-sm">{student.name}</td>
-                          <td className="p-3 text-sm">{student.studentId}</td>
-                          <td className="p-3 text-sm">{student.email}</td>
-                          <td className="p-3">
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() =>
-                                handleRemoveStudent(
-                                  selectedClass.id,
-                                  student.id
-                                )
-                              }
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </td>
+                ) : selectedClass.students.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No students enrolled in this class
+                  </div>
+                ) : (
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left p-3 text-sm font-medium">
+                            Name
+                          </th>
+                          <th className="text-left p-3 text-sm font-medium">
+                            Student ID
+                          </th>
+                          <th className="text-left p-3 text-sm font-medium">
+                            Email
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {selectedClass.students.map((student) => (
+                          <tr key={student.id} className="border-t">
+                            <td className="p-3 text-sm">{student.name}</td>
+                            <td className="p-3 text-sm">{student.studentId}</td>
+                            <td className="p-3 text-sm">{student.email}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               {/* Assignments Section */}
@@ -871,43 +892,52 @@ export default function MyClassesPage() {
                 <h3 className="text-lg font-semibold mb-4">
                   Assignments ({selectedClass.assignments.length})
                 </h3>
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full">
-                    <thead className="bg-muted/50">
-                      <tr>
-                        <th className="text-left p-3 text-sm font-medium">
-                          Title
-                        </th>
-                        <th className="text-left p-3 text-sm font-medium">
-                          Due Date
-                        </th>
-                        <th className="text-left p-3 text-sm font-medium">
-                          Status
-                        </th>
-                        <th className="text-left p-3 text-sm font-medium">
-                          Submissions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedClass.assignments.map((assignment) => (
-                        <tr key={assignment.id} className="border-t">
-                          <td className="p-3 text-sm font-medium">
-                            {assignment.title}
-                          </td>
-                          <td className="p-3 text-sm">{assignment.dueDate}</td>
-                          <td className="p-3">
-                            <Badge variant="outline">{assignment.status}</Badge>
-                          </td>
-                          <td className="p-3 text-sm">
-                            {assignment.submissions}/
-                            {selectedClass.totalStudents}
-                          </td>
+                {loadingCourseDetails ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    Loading assignments...
+                  </div>
+                ) : selectedClass.assignments.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No assignments for this class
+                  </div>
+                ) : (
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left p-3 text-sm font-medium">
+                            Title
+                          </th>
+                          <th className="text-left p-3 text-sm font-medium">
+                            Due Date
+                          </th>
+                          <th className="text-left p-3 text-sm font-medium">
+                            Status
+                          </th>
+                          <th className="text-left p-3 text-sm font-medium">
+                            Submissions
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {selectedClass.assignments.map((assignment) => (
+                          <tr key={assignment.id} className="border-t">
+                            <td className="p-3 text-sm font-medium">
+                              {assignment.title}
+                            </td>
+                            <td className="p-3 text-sm">{assignment.dueDate}</td>
+                            <td className="p-3">
+                              <Badge variant="outline">{assignment.status}</Badge>
+                            </td>
+                            <td className="p-3 text-sm">
+                              {assignment.submissions}/{selectedClass.totalStudents}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -941,74 +971,6 @@ export default function MyClassesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Add Student Modal */}
-      <Dialog
-        open={isAddStudentModalOpen}
-        onOpenChange={setIsAddStudentModalOpen}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add Student to Class</DialogTitle>
-            <DialogDescription>
-              Enter student information to add them to the class.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="student-name">Name *</Label>
-              <Input
-                id="student-name"
-                value={studentFormData.name}
-                onChange={(e) =>
-                  setStudentFormData({
-                    ...studentFormData,
-                    name: e.target.value,
-                  })
-                }
-                placeholder="Enter student name"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="student-id">Student ID *</Label>
-              <Input
-                id="student-id"
-                value={studentFormData.studentId}
-                onChange={(e) =>
-                  setStudentFormData({
-                    ...studentFormData,
-                    studentId: e.target.value,
-                  })
-                }
-                placeholder="Enter student ID"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="student-email">Email</Label>
-              <Input
-                id="student-email"
-                type="email"
-                value={studentFormData.email}
-                onChange={(e) =>
-                  setStudentFormData({
-                    ...studentFormData,
-                    email: e.target.value,
-                  })
-                }
-                placeholder="Enter email"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setIsAddStudentModalOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleAddStudent}>Add Student</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

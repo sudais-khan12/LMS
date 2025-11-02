@@ -33,25 +33,59 @@ import {
   CourseEnrollmentModal,
   CourseDetailsModal,
 } from "@/features/courses";
+import {
+  useStudentCourses,
+  type StudentCourse as ApiStudentCourse,
+} from "@/lib/hooks/api/student";
+import { TableSkeleton } from "@/components/ui/loading-skeleton";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 
 type SortField = "title" | "instructor" | "progress" | "status" | "category";
 type SortDirection = "asc" | "desc";
 
+function mapApiCourseToUI(course: ApiStudentCourse): StudentCourse {
+  return {
+    id: parseInt(course.id) || 0,
+    title: course.title,
+    instructor: course.instructor || "Unknown",
+    category: course.category || "Uncategorized",
+    description: course.description || "",
+    progress: course.progress || 0,
+    status: (course.status || "Enrolled") as
+      | "Enrolled"
+      | "Completed"
+      | "In Progress",
+    level: course.level || "Beginner",
+  };
+}
+
 export default function MyCoursesPage() {
   const { toast } = useToast();
-  const [courses, setCourses] = useState<StudentCourse[]>(mockStudentCourses);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterCategory, setFilterCategory] = useState("All");
   const [sortField, setSortField] = useState<SortField>("title");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
-  const [isLoading, setIsLoading] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<StudentCourse | null>(
     null
   );
   const [isEnrollmentModalOpen, setIsEnrollmentModalOpen] = useState(false);
   const [isCourseDetailsModalOpen, setIsCourseDetailsModalOpen] =
     useState(false);
+
+  // API hooks
+  const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
+  const {
+    data: coursesData,
+    isLoading,
+    error,
+  } = useStudentCourses({
+    limit: 100,
+  });
+
+  const courses = useMemo(() => {
+    return coursesData?.items.map(mapApiCourseToUI) || [];
+  }, [coursesData]);
 
   // Filter and sort courses
   const filteredAndSortedCourses = useMemo(() => {
@@ -137,95 +171,37 @@ export default function MyCoursesPage() {
   };
 
   const handleEnrollCourse = () => {
-    setIsEnrollmentModalOpen(true);
+    toast({
+      title: "Enrollment",
+      description: "Course enrollment is managed by administrators. Please contact your administrator to enroll in courses.",
+      variant: "default",
+    });
   };
 
   const handleEnrollInCourse = async (courseId: number) => {
-    setIsLoading(true);
-    try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      // Add the new course to the student's courses
-      const newCourse: StudentCourse = {
-        id: courseId,
-        title: "New Enrolled Course",
-        instructor: "Prof. New Instructor",
-        progress: 0,
-        totalLessons: 20,
-        completedLessons: 0,
-        duration: "8 weeks",
-        thumbnail: "/course-thumbnails/new-course.jpg",
-        status: "Active",
-        category: "New Category",
-        startDate: new Date().toISOString().split("T")[0],
-        endDate: new Date(Date.now() + 8 * 7 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .split("T")[0],
-        rating: 4.5,
-        description: "A newly enrolled course.",
-      };
-
-      setCourses((prevCourses) => [...prevCourses, newCourse]);
-    } catch (error) {
-      throw error; // Re-throw to be handled by the modal
-    } finally {
-      setIsLoading(false);
-    }
+    // Enrollment is handled by admin - students cannot self-enroll
+    toast({
+      title: "Enrollment Not Available",
+      description: "Please contact your administrator to enroll in courses.",
+      variant: "default",
+    });
   };
 
   const handleContinueLearning = async (courseId: number) => {
-    setIsLoading(true);
-    try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Update course progress
-      setCourses((prevCourses) =>
-        prevCourses.map((course) =>
-          course.id === courseId
-            ? {
-                ...course,
-                completedLessons: Math.min(
-                  course.completedLessons + 1,
-                  course.totalLessons
-                ),
-                progress: Math.min(
-                  Math.round(
-                    ((course.completedLessons + 1) / course.totalLessons) * 100
-                  ),
-                  100
-                ),
-                status:
-                  course.completedLessons + 1 >= course.totalLessons
-                    ? "Completed"
-                    : course.status,
-              }
-            : course
-        )
-      );
-    } catch (error) {
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
+    // This would typically navigate to course content
+    toast({
+      title: "Opening Course",
+      description: "Course content will open in a new window.",
+      variant: "default",
+    });
   };
 
   const handleReviewCourse = async (courseId: number) => {
-    setIsLoading(true);
-    try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      toast({
-        title: "Course Review",
-        description: "Opening course review materials...",
-      });
-    } catch (error) {
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
+    // This would typically open course review materials
+    toast({
+      title: "Course Review",
+      description: "Opening course review materials...",
+    });
   };
 
   // Statistics
@@ -273,13 +249,10 @@ export default function MyCoursesPage() {
             className="bg-primary hover:bg-primary/90"
             onClick={handleEnrollCourse}
             disabled={isLoading}
+            variant="outline"
           >
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Plus className="h-4 w-4 mr-2" />
-            )}
-            Enroll in Course
+            <Plus className="h-4 w-4 mr-2" />
+            Request Enrollment
           </Button>
         </div>
       </div>

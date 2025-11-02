@@ -18,7 +18,7 @@ import { Search, Filter, X } from "lucide-react";
 interface StudentFiltersProps {
   filters: StudentFilters;
   onFiltersChange: (filters: StudentFilters) => void;
-  availableCourses: string[];
+  availableCourses: string[] | Array<{ id: string; title: string }>;
   isLoading?: boolean;
 }
 
@@ -106,11 +106,15 @@ export default function StudentFiltersComponent({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="All">All Courses</SelectItem>
-                  {availableCourses.map((course) => (
-                    <SelectItem key={course} value={course}>
-                      {course}
-                    </SelectItem>
-                  ))}
+                  {availableCourses.map((course) => {
+                    const courseId = typeof course === 'string' ? course : course.id;
+                    const courseName = typeof course === 'string' ? course : course.title;
+                    return (
+                      <SelectItem key={courseId} value={courseId}>
+                        {courseName}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -169,7 +173,9 @@ export default function StudentFiltersComponent({
               )}
               {filters.course !== "All" && (
                 <span className="inline-flex items-center px-2 py-1 rounded-md bg-purple-100 text-purple-800 text-xs">
-                  Course: {filters.course}
+                  Course: {availableCourses.length > 0 && typeof availableCourses[0] === 'object' 
+                    ? (availableCourses as Array<{ id: string; title: string }>).find(c => c.id === filters.course)?.title || filters.course
+                    : filters.course}
                 </span>
               )}
               {filters.attendanceRange !== "All" && (

@@ -38,25 +38,68 @@ import {
   AssignmentTable,
   AssignmentDetailsModal,
 } from "@/features/assignments";
+import {
+  useStudentAssignments,
+  useSubmitStudentAssignment,
+  type StudentAssignment as ApiStudentAssignment,
+} from "@/lib/hooks/api/student";
+import { TableSkeleton } from "@/components/ui/loading-skeleton";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 
 type SortField = "title" | "course" | "dueDate" | "status" | "points";
 type SortDirection = "asc" | "desc";
 
+function mapApiAssignmentToUI(
+  assignment: ApiStudentAssignment
+): StudentAssignment {
+  const submission = assignment.submissions?.[0];
+  const status = submission
+    ? "submitted"
+    : new Date(assignment.dueDate) < new Date()
+    ? "overdue"
+    : "pending";
+
+  return {
+    id: parseInt(assignment.id) || 0,
+    title: assignment.title,
+    description: assignment.description || "",
+    course: assignment.course?.title || assignment.courseId,
+    dueDate: assignment.dueDate,
+    points: assignment.points || 0,
+    status: status as "pending" | "submitted" | "overdue",
+    submittedDate: submission
+      ? new Date().toISOString().split("T")[0]
+      : undefined,
+  };
+}
+
 export default function AssignmentsPage() {
   const { toast } = useToast();
-  const [assignments, setAssignments] = useState<StudentAssignment[]>(
-    mockStudentAssignments
-  );
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterCourse, setFilterCourse] = useState("All");
   const [sortField, setSortField] = useState<SortField>("dueDate");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
-  const [isLoading, setIsLoading] = useState(false);
   const [selectedAssignment, setSelectedAssignment] =
     useState<StudentAssignment | null>(null);
   const [isAssignmentDetailsModalOpen, setIsAssignmentDetailsModalOpen] =
     useState(false);
+
+  // API hooks
+  const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
+  const {
+    data: assignmentsData,
+    isLoading,
+    error,
+  } = useStudentAssignments({
+    limit: 100,
+  });
+
+  const submitAssignment = useSubmitStudentAssignment();
+
+  const assignments = useMemo(() => {
+    return assignmentsData?.items.map(mapApiAssignmentToUI) || [];
+  }, [assignmentsData]);
 
   // Filter and sort assignments
   const filteredAndSortedAssignments = useMemo(() => {
@@ -137,39 +180,14 @@ export default function AssignmentsPage() {
   };
 
   const handleMarkAsDone = async (assignmentId: number, file?: File) => {
-    setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      setAssignments((prevAssignments) =>
-        prevAssignments.map((assignment) =>
-          assignment.id === assignmentId
-            ? {
-                ...assignment,
-                status: "submitted" as const,
-                submittedDate: new Date().toISOString().split("T")[0],
-              }
-            : assignment
-        )
-      );
-
-      const assignment = assignments.find((a) => a.id === assignmentId);
-      toast({
-        title: "Assignment Submitted",
-        description: `${assignment?.title} has been submitted successfully${
-          file ? ` with file: ${file.name}` : ""
-        }.`,
+      await submitAssignment.mutateAsync({
+        assignmentId: String(assignmentId),
+        content: "Submitted via web interface",
+        fileUrl: file ? URL.createObjectURL(file) : undefined,
       });
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to submit assignment",
-        variant: "destructive",
-      });
       throw error; // Re-throw to be handled by the modal
-    } finally {
-      setIsLoading(false);
     }
   };
 

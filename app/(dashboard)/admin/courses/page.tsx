@@ -9,6 +9,16 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
 import { useToast } from "@/hooks/use-toast";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useAdminCourses,
+  useCreateAdminCourse,
+  useUpdateAdminCourse,
+  useDeleteAdminCourse,
+  type AdminCourse,
+} from "@/lib/hooks/api/admin";
+import { TableSkeleton } from "@/components/ui/loading-skeleton";
 import {
   Search,
   Plus,
@@ -35,7 +45,7 @@ import DeleteConfirmationModal from "@/components/admin/DeleteConfirmationModal"
 
 // Course interface
 interface Course {
-  id: number;
+  id: string; // Changed to string to match API CUID format
   title: string;
   description: string;
   instructor: string;
@@ -54,108 +64,7 @@ interface Course {
   thumbnail: string;
 }
 
-// Mock courses data
-const initialCoursesData: Course[] = [
-  {
-    id: 1,
-    title: "React Fundamentals",
-    description:
-      "Learn the basics of React.js including components, state, and props.",
-    instructor: "Sarah Wilson",
-    category: "Web Development",
-    level: "Beginner",
-    duration: "8 weeks",
-    students: 156,
-    maxStudents: 200,
-    rating: 4.8,
-    price: 299,
-    status: "Active" as const,
-    startDate: "2024-02-01",
-    endDate: "2024-03-28",
-    lessons: 24,
-    completedLessons: 18,
-    thumbnail: "/course-thumbnails/react-fundamentals.jpg",
-  },
-  {
-    id: 2,
-    title: "JavaScript Advanced",
-    description:
-      "Master advanced JavaScript concepts including ES6+, async programming, and design patterns.",
-    instructor: "Mike Johnson",
-    category: "Programming",
-    level: "Intermediate",
-    duration: "10 weeks",
-    students: 98,
-    maxStudents: 150,
-    rating: 4.9,
-    price: 399,
-    status: "Active" as const,
-    startDate: "2024-02-15",
-    endDate: "2024-04-25",
-    lessons: 30,
-    completedLessons: 12,
-    thumbnail: "/course-thumbnails/javascript-advanced.jpg",
-  },
-  {
-    id: 3,
-    title: "Node.js Backend Development",
-    description:
-      "Build scalable backend applications using Node.js and Express.",
-    instructor: "David Brown",
-    category: "Backend Development",
-    level: "Intermediate",
-    duration: "12 weeks",
-    students: 87,
-    maxStudents: 120,
-    rating: 4.7,
-    price: 449,
-    status: "Active" as const,
-    startDate: "2024-03-01",
-    endDate: "2024-05-23",
-    lessons: 36,
-    completedLessons: 8,
-    thumbnail: "/course-thumbnails/nodejs-backend.jpg",
-  },
-  {
-    id: 4,
-    title: "Database Design",
-    description: "Learn database design principles, SQL, and NoSQL databases.",
-    instructor: "Emily Davis",
-    category: "Database",
-    level: "Beginner",
-    duration: "6 weeks",
-    students: 134,
-    maxStudents: 180,
-    rating: 4.6,
-    price: 249,
-    status: "Active" as const,
-    startDate: "2024-01-15",
-    endDate: "2024-02-26",
-    lessons: 18,
-    completedLessons: 18,
-    thumbnail: "/course-thumbnails/database-design.jpg",
-  },
-  {
-    id: 5,
-    title: "UI/UX Design Principles",
-    description:
-      "Master user interface and user experience design fundamentals.",
-    instructor: "Lisa Garcia",
-    category: "Design",
-    level: "Beginner",
-    duration: "8 weeks",
-    students: 76,
-    maxStudents: 100,
-    rating: 4.5,
-    price: 279,
-    status: "Draft" as const,
-    startDate: "2024-04-01",
-    endDate: "2024-05-27",
-    lessons: 20,
-    completedLessons: 5,
-    thumbnail: "/course-thumbnails/ui-ux-design.jpg",
-  },
-];
+// Mock courses data removed - now using real API data
 
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -196,40 +105,85 @@ type SortField =
   | "rating";
 type SortDirection = "asc" | "desc";
 
+function mapApiCourseToUI(course: AdminCourse & { teacher?: { id: string; user: { name: string; email: string } } }): Course {
+  return {
+    id: course.id, // Use string ID directly to avoid duplicate keys
+    title: course.title,
+    description: course.description || "",
+    instructor: course.teacher?.user?.name || course.instructor || "Unassigned",
+    category: course.category || "Uncategorized",
+    level: course.level || "Beginner",
+    duration: course.duration || "0 weeks",
+    students: course.students || 0,
+    maxStudents: course.maxStudents || 100,
+    rating: course.rating || 0,
+    price: course.price || 0,
+    status: (course.status || "Active") as Course["status"],
+    startDate: course.startDate || new Date().toISOString().split("T")[0],
+    endDate: course.endDate || new Date().toISOString().split("T")[0],
+    lessons: course.lessons || 0,
+    completedLessons: course.completedLessons || 0,
+    thumbnail: course.thumbnail || "/course-thumbnails/default.jpg",
+  };
+}
+
 export default function AdminCoursesPage() {
   const { toast } = useToast();
-  const [courses, setCourses] = useState<Course[]>(initialCoursesData);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
   const [sortField, setSortField] = useState<SortField>("title");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
-  const [isLoading, setIsLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
+  const pageSize = 20;
+
+  // API hooks
+  const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
+  const {
+    data: coursesData,
+    isLoading,
+    error,
+    refetch: refetchCourses,
+  } = useAdminCourses({
+    limit: pageSize,
+    skip: currentPage * pageSize,
+    q: debouncedSearchTerm || undefined,
+  });
+
+  const queryClient = useQueryClient();
+  const createCourse = useCreateAdminCourse();
+  const updateCourse = useUpdateAdminCourse();
+  const deleteCourse = useDeleteAdminCourse();
+
+  const courses = useMemo(() => {
+    if (!coursesData?.items) return [];
+    return coursesData.items.map((course: any) => mapApiCourseToUI(course));
+  }, [coursesData]);
 
   // Modal states
   const [isCourseFormOpen, setIsCourseFormOpen] = useState(false);
   const [isCourseDetailsOpen, setIsCourseDetailsOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
-  const [editingCourse, setEditingCourse] = useState<Course | null>(null);
+  const [editingCourse, setEditingCourse] = useState<{ id: string; title: string; code: string; description?: string; teacherId?: string } | null>(null);
 
-  // Filter and sort courses
-  const filteredAndSortedCourses = useMemo(() => {
-    const filtered = courses.filter((course) => {
-      const matchesSearch =
-        course.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        course.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        course.instructor.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        course.category.toLowerCase().includes(searchTerm.toLowerCase());
+  // Filter courses on client side (since API handles search, but we do category/status filtering)
+  // Note: Search is handled server-side via the `q` parameter
+  const filteredCourses = useMemo(() => {
+    return courses.filter((course) => {
       const matchesCategory =
         filterCategory === "All" || course.category === filterCategory;
       const matchesStatus =
         filterStatus === "All" || course.status === filterStatus;
-      return matchesSearch && matchesCategory && matchesStatus;
+      return matchesCategory && matchesStatus;
     });
+  }, [courses, filterCategory, filterStatus]);
 
-    // Sort courses
-    filtered.sort((a, b) => {
+  // Sort courses on client side
+  const filteredAndSortedCourses = useMemo(() => {
+    const sorted = [...filteredCourses];
+
+    sorted.sort((a, b) => {
       let aValue: string | number;
       let bValue: string | number;
 
@@ -276,15 +230,17 @@ export default function AdminCoursesPage() {
       return 0;
     });
 
-    return filtered;
+    return sorted;
   }, [
-    courses,
-    searchTerm,
-    filterCategory,
-    filterStatus,
+    filteredCourses,
     sortField,
     sortDirection,
   ]);
+
+  // Calculate pagination info
+  const totalPages = Math.ceil((coursesData?.total || 0) / pageSize);
+  const startIndex = currentPage * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, coursesData?.total || 0);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -310,7 +266,27 @@ export default function AdminCoursesPage() {
   };
 
   const handleEditCourse = (course: Course) => {
-    setEditingCourse(course);
+    // Find the actual API course to get the real code and teacherId
+    const actualCourse = coursesData?.items?.find(c => c.id === course.id);
+    if (!actualCourse) {
+      toast({
+        title: "Error",
+        description: "Course data not found",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Convert API Course to form format
+    const apiCourse = {
+      id: actualCourse.id,
+      title: actualCourse.title,
+      code: actualCourse.code,
+      description: actualCourse.description,
+      teacherId: actualCourse.teacherId,
+    };
+    
+    setEditingCourse(apiCourse);
     setIsCourseFormOpen(true);
   };
 
@@ -325,7 +301,7 @@ export default function AdminCoursesPage() {
   };
 
   const handleToggleStatus = async (
-    courseId: number,
+    courseId: string,
     currentStatus: string
   ) => {
     setIsLoading(true);
@@ -364,82 +340,71 @@ export default function AdminCoursesPage() {
     }
   };
 
-  const handleSaveCourse = async (courseData: Partial<Course>) => {
-    setIsLoading(true);
+  const handleSaveCourse = async (courseData: {
+    title: string;
+    code: string;
+    description?: string;
+    teacherId?: string;
+  }) => {
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
       if (editingCourse) {
         // Update existing course
-        setCourses((prevCourses) =>
-          prevCourses.map((course) =>
-            course.id === editingCourse.id
-              ? {
-                  ...course,
-                  ...courseData,
-                }
-              : course
-          )
-        );
+        await updateCourse.mutateAsync({
+          id: editingCourse.id,
+          title: courseData.title,
+          code: courseData.code,
+          description: courseData.description,
+          teacherId: courseData.teacherId || null,
+        });
       } else {
-        // Add new course
-        const newCourse: Course = {
-          id: Math.max(...courses.map((c) => c.id)) + 1,
-          title: courseData.title || "Untitled Course",
-          description: courseData.description || "No description provided",
-          instructor: courseData.instructor || "Unknown Instructor",
-          category: courseData.category || "Uncategorized",
-          level: courseData.level || "Beginner",
-          duration: courseData.duration || "0 weeks",
-          maxStudents: courseData.maxStudents || 100,
-          price: courseData.price || 0,
-          status: courseData.status || "Draft",
-          startDate:
-            courseData.startDate || new Date().toISOString().split("T")[0],
-          endDate: courseData.endDate || new Date().toISOString().split("T")[0],
-          lessons: courseData.lessons || 0,
-          students: 0,
-          rating: 0,
-          completedLessons: 0,
-          thumbnail: "/course-thumbnails/default.jpg",
-        };
-        setCourses((prevCourses) => [...prevCourses, newCourse]);
+        // Create new course
+        await createCourse.mutateAsync({
+          title: courseData.title,
+          code: courseData.code,
+          description: courseData.description,
+          teacherId: courseData.teacherId,
+        });
+        
+        // Reset to first page and clear search to show new course
+        setCurrentPage(0);
+        setSearchTerm("");
+        
+        // Wait for debounce to clear (300ms) plus a small buffer
+        await new Promise(resolve => setTimeout(resolve, 400));
       }
-    } catch (error) {
-      throw error; // Re-throw to be handled by the form
-    } finally {
-      setIsLoading(false);
+      
+      // Close the form first
+      setIsCourseFormOpen(false);
+      setEditingCourse(null);
+      
+      // Invalidate and refetch all course queries
+      await queryClient.invalidateQueries({ queryKey: ["admin", "courses"] });
+      
+      // Explicitly refetch the current query
+      await refetchCourses();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error?.message || (editingCourse ? "Failed to update course" : "Failed to create course"),
+        variant: "destructive",
+      });
+      throw error;
     }
   };
 
   const handleConfirmDelete = async () => {
     if (!selectedCourse) return;
 
-    setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      setCourses((prevCourses) =>
-        prevCourses.filter((course) => course.id !== selectedCourse.id)
-      );
-
-      toast({
-        title: "Course deleted",
-        description: `${selectedCourse.title} has been removed from the system.`,
-      });
-
+      await deleteCourse.mutateAsync(selectedCourse.id);
       setIsDeleteModalOpen(false);
       setSelectedCourse(null);
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: "Failed to delete course",
+        description: error?.message || "Failed to delete course",
         variant: "destructive",
       });
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -499,7 +464,7 @@ export default function AdminCoursesPage() {
                   Total Courses
                 </p>
                 <p className="text-2xl font-bold text-foreground">
-                  {courses.length}
+                  {coursesData?.total || 0}
                 </p>
               </div>
             </div>
@@ -656,7 +621,7 @@ export default function AdminCoursesPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
             <BookOpen className="h-5 w-5 text-primary" />
-            Courses ({filteredAndSortedCourses.length})
+            Courses ({coursesData?.total || 0} total)
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -887,6 +852,51 @@ export default function AdminCoursesPage() {
         </CardContent>
       </Card>
 
+      {/* Pagination */}
+      {coursesData && coursesData.total > 0 && (
+        <Card
+          className={cn(
+            glassStyles.card,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                Showing {startIndex + 1} to {endIndex} of {coursesData.total} courses
+                {totalPages > 1 && ` (Page ${currentPage + 1} of ${totalPages})`}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+                  disabled={currentPage === 0 || isLoading}
+                  className="flex items-center gap-1"
+                >
+                  <ArrowUp className="h-4 w-4 rotate-[-90deg]" />
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground px-2">
+                  Page {currentPage + 1} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
+                  disabled={currentPage >= totalPages - 1 || isLoading}
+                  className="flex items-center gap-1"
+                >
+                  Next
+                  <ArrowDown className="h-4 w-4 rotate-[-90deg]" />
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Modals */}
       <CourseForm
         isOpen={isCourseFormOpen}
@@ -922,7 +932,7 @@ export default function AdminCoursesPage() {
         onConfirm={handleConfirmDelete}
         title="Delete Course"
         description={`Are you sure you want to delete ${selectedCourse?.title}? This action cannot be undone.`}
-        isLoading={isLoading}
+        isLoading={deleteCourse.isPending}
       />
     </div>
   );

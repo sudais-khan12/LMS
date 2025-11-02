@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import * as React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -43,18 +44,33 @@ import {
   XCircle,
 } from "lucide-react";
 
-// Student form schema for validation
-const studentSchema = z.object({
+// Student form schema for validation - simplified to match API
+const createStudentSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Invalid email address"),
-  phone: z.string().min(10, "Phone number must be at least 10 digits"),
-  department: z.string().min(2, "Department must be at least 2 characters"),
-  year: z.enum(["Freshman", "Sophomore", "Junior", "Senior"]),
-  status: z.enum(["Active", "Inactive", "At Risk", "Suspended"]),
-  courses: z.array(z.string()),
+  phone: z.string().optional(),
+  department: z.string().optional(), // Used for section
+  year: z.enum(["Freshman", "Sophomore", "Junior", "Senior"]).optional(),
+  enrollmentNo: z.string().optional(),
+  semester: z.number().int().min(1).max(8).optional(),
+  section: z.string().optional(),
+  password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
-type StudentFormData = z.infer<typeof studentSchema>;
+const updateStudentSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().email("Invalid email address"),
+  phone: z.string().optional(),
+  department: z.string().optional(), // Used for section
+  year: z.enum(["Freshman", "Sophomore", "Junior", "Senior"]).optional(),
+  enrollmentNo: z.string().optional(),
+  semester: z.number().int().min(1).max(8).optional(),
+  section: z.string().optional(),
+  password: z.string().min(6, "Password must be at least 6 characters").optional(),
+});
+
+// Define our own form data type to avoid conflict with types/student.ts
+type StudentFormDataLocal = z.infer<typeof createStudentSchema> | z.infer<typeof updateStudentSchema>;
 
 interface StudentDetailsModalProps {
   isOpen: boolean;
@@ -67,7 +83,7 @@ interface StudentFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   student?: Student | null;
-  onSave: (studentData: StudentFormData) => void;
+  onSave: (studentData: StudentFormDataLocal & { password?: string; enrollmentNo?: string; semester?: number; section?: string }) => Promise<void>;
   isLoading?: boolean;
 }
 
@@ -302,61 +318,98 @@ export function StudentFormModal({
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Use the correct schema based on whether we're editing or creating
+  const schema = student ? updateStudentSchema : createStudentSchema;
+  
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isValid },
     reset,
     setValue,
     watch,
-  } = useForm<StudentFormData>({
-    resolver: zodResolver(studentSchema),
-    defaultValues: student
-      ? {
-          name: student.name,
-          email: student.email,
-          phone: student.phone,
-          department: student.department,
-          year: student.year,
-          status: student.status,
-          courses: student.courses,
-        }
-      : {
+  } = useForm<StudentFormDataLocal>({
+    resolver: zodResolver(schema),
+    mode: "onTouched", // Validate on blur and submit for better UX
+    defaultValues: {
+      name: "",
+      email: "",
+      phone: "",
+      department: "",
+      year: "Freshman",
+      enrollmentNo: "",
+      section: "",
+      semester: 1,
+      password: "",
+    },
+  });
+
+  // Reset form when student prop or isOpen changes
+  React.useEffect(() => {
+    if (isOpen) {
+      if (student) {
+        console.log("Resetting form with student data:", student);
+        reset({
+          name: student.name || "",
+          email: student.email || "",
+          phone: student.phone || "",
+          department: student.department || "",
+          year: student.year || "Freshman",
+          enrollmentNo: student.studentId || "",
+          section: student.department || "",
+          semester: undefined,
+          password: undefined,
+        });
+      } else {
+        console.log("Resetting form for new student");
+        reset({
           name: "",
           email: "",
           phone: "",
           department: "",
           year: "Freshman",
-          status: "Active",
-          courses: [],
-        },
-  });
+          enrollmentNo: "",
+          section: "",
+          semester: 1,
+          password: "",
+        });
+      }
+    }
+  }, [student, isOpen, reset]);
 
   const watchedYear = watch("year");
-  const watchedStatus = watch("status");
 
-  const onSubmit = async (data: StudentFormData) => {
+  const onSubmit = async (data: StudentFormDataLocal) => {
+    console.log("Form onSubmit called with data:", data);
+    console.log("Form validation errors:", errors);
+    console.log("Form is valid:", isValid);
+    
     setIsSubmitting(true);
     try {
-      await onSave(data);
-      toast({
-        title: student
-          ? "Student updated successfully"
-          : "Student created successfully",
-        description: student
-          ? `${data.name} has been updated.`
-          : `${data.name} has been added to the system.`,
-      });
+      // Ensure all required fields are passed
+      const submitData = {
+        ...data,
+        // Ensure enrollmentNo, semester, section are included
+        enrollmentNo: data.enrollmentNo || "",
+        semester: data.semester,
+        section: data.section || data.department || "",
+      };
+      console.log("Calling onSave with submitData:", submitData);
+      await onSave(submitData);
+      console.log("onSave completed successfully, closing form");
+      // Only close and reset on success
       reset();
       onClose();
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: student
-          ? "Failed to update student"
-          : "Failed to create student",
-        variant: "destructive",
+    } catch (error: any) {
+      console.error("Error in form onSubmit:", error);
+      console.error("Error details:", {
+        message: error?.message,
+        stack: error?.stack,
+        status: (error as any)?.status,
       });
+      // Error handling is done in the parent component and mutation hooks
+      // Don't close the form - let user fix the error
+      // Don't re-throw - the parent already handled it
     } finally {
       setIsSubmitting(false);
     }
@@ -381,7 +434,22 @@ export function StudentFormModal({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form 
+          onSubmit={(e) => {
+            console.log("Form submit event triggered");
+            e.preventDefault();
+            handleSubmit(
+              onSubmit,
+              (validationErrors) => {
+                console.error("Form validation failed:", validationErrors);
+                console.error("Validation errors object:", validationErrors);
+                // Validation errors are already displayed by react-hook-form
+                // This handler is called when validation fails
+              }
+            )(e);
+          }} 
+          className="space-y-4"
+        >
           <div className="space-y-2">
             <Label htmlFor="name">Full Name</Label>
             <Input
@@ -396,16 +464,22 @@ export function StudentFormModal({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="email">Email Address</Label>
+            <Label htmlFor="email">Email Address *</Label>
             <Input
               id="email"
               type="email"
               {...register("email")}
               placeholder="Enter email address"
               className={cn(errors.email && "border-red-500")}
+              autoComplete="email"
             />
             {errors.email && (
               <p className="text-sm text-red-500">{errors.email.message}</p>
+            )}
+            {!errors.email && !student && (
+              <p className="text-xs text-muted-foreground">
+                Make sure this email doesn't already exist in the system
+              </p>
             )}
           </div>
 
@@ -422,78 +496,141 @@ export function StudentFormModal({
             )}
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="department">Department</Label>
-            <Input
-              id="department"
-              {...register("department")}
-              placeholder="Enter department"
-              className={cn(errors.department && "border-red-500")}
-            />
-            {errors.department && (
-              <p className="text-sm text-red-500">
-                {errors.department.message}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="enrollmentNo">Enrollment Number</Label>
+              <Input
+                id="enrollmentNo"
+                {...register("enrollmentNo")}
+                placeholder="e.g., ENR-001"
+                className={cn(errors.enrollmentNo && "border-red-500")}
+              />
+              {errors.enrollmentNo && (
+                <p className="text-sm text-red-500">{errors.enrollmentNo.message}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="section">Section</Label>
+              <Input
+                id="section"
+                {...register("section")}
+                placeholder="e.g., A, B, C"
+                className={cn(errors.section && "border-red-500")}
+              />
+              {errors.section && (
+                <p className="text-sm text-red-500">{errors.section.message}</p>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="year">Academic Year</Label>
+              <Select
+                value={watchedYear || undefined}
+                onValueChange={(value) =>
+                  setValue(
+                    "year",
+                    value as "Freshman" | "Sophomore" | "Junior" | "Senior"
+                  )
+                }
+              >
+                <SelectTrigger className={cn(errors.year && "border-red-500")}>
+                  <SelectValue placeholder="Select academic year" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Freshman">Freshman</SelectItem>
+                  <SelectItem value="Sophomore">Sophomore</SelectItem>
+                  <SelectItem value="Junior">Junior</SelectItem>
+                  <SelectItem value="Senior">Senior</SelectItem>
+                </SelectContent>
+              </Select>
+              {errors.year && (
+                <p className="text-sm text-red-500">{errors.year.message}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="semester">Semester</Label>
+              <Input
+                id="semester"
+                type="number"
+                min="1"
+                max="8"
+                {...register("semester", { 
+                  valueAsNumber: true,
+                  setValueAs: (v) => v === "" ? undefined : Number(v)
+                })}
+                placeholder="e.g., 1-8"
+                className={cn(errors.semester && "border-red-500")}
+              />
+              {errors.semester && (
+                <p className="text-sm text-red-500">{errors.semester.message}</p>
+              )}
+            </div>
+          </div>
+
+          {!student && (
+            <div className="space-y-2">
+              <Label htmlFor="password">
+                Password <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="password"
+                type="password"
+                {...register("password")}
+                placeholder="Enter password (min 6 characters)"
+                className={cn(errors.password && "border-red-500")}
+                autoComplete="new-password"
+              />
+              {errors.password && (
+                <p className="text-sm text-red-500">{errors.password.message}</p>
+              )}
+              {!errors.password && (
+                <p className="text-xs text-muted-foreground">
+                  Password must be at least 6 characters long
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Display validation errors summary */}
+          {Object.keys(errors).length > 0 && (
+            <div className="p-3 rounded-md bg-red-50 border border-red-200">
+              <p className="text-sm font-medium text-red-800 mb-1">
+                Please fix the following {Object.keys(errors).length} error(s):
               </p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="year">Academic Year</Label>
-            <Select
-              value={watchedYear}
-              onValueChange={(value) =>
-                setValue(
-                  "year",
-                  value as "Freshman" | "Sophomore" | "Junior" | "Senior"
-                )
-              }
-            >
-              <SelectTrigger className={cn(errors.year && "border-red-500")}>
-                <SelectValue placeholder="Select academic year" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Freshman">Freshman</SelectItem>
-                <SelectItem value="Sophomore">Sophomore</SelectItem>
-                <SelectItem value="Junior">Junior</SelectItem>
-                <SelectItem value="Senior">Senior</SelectItem>
-              </SelectContent>
-            </Select>
-            {errors.year && (
-              <p className="text-sm text-red-500">{errors.year.message}</p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="status">Status</Label>
-            <Select
-              value={watchedStatus}
-              onValueChange={(value) =>
-                setValue(
-                  "status",
-                  value as "Active" | "Inactive" | "At Risk" | "Suspended"
-                )
-              }
-            >
-              <SelectTrigger className={cn(errors.status && "border-red-500")}>
-                <SelectValue placeholder="Select status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Active">Active</SelectItem>
-                <SelectItem value="Inactive">Inactive</SelectItem>
-                <SelectItem value="At Risk">At Risk</SelectItem>
-                <SelectItem value="Suspended">Suspended</SelectItem>
-              </SelectContent>
-            </Select>
-            {errors.status && (
-              <p className="text-sm text-red-500">{errors.status.message}</p>
-            )}
-          </div>
+              <ul className="text-sm text-red-700 list-disc list-inside space-y-1">
+                {errors.name && <li><strong>Name:</strong> {errors.name.message}</li>}
+                {errors.email && <li><strong>Email:</strong> {errors.email.message}</li>}
+                {errors.password && <li><strong>Password:</strong> {errors.password.message}</li>}
+                {errors.phone && <li><strong>Phone:</strong> {errors.phone.message}</li>}
+                {errors.enrollmentNo && <li><strong>Enrollment No:</strong> {errors.enrollmentNo.message}</li>}
+                {errors.semester && <li><strong>Semester:</strong> {errors.semester.message}</li>}
+                {errors.section && <li><strong>Section:</strong> {errors.section.message}</li>}
+                {errors.department && <li><strong>Department:</strong> {errors.department.message}</li>}
+                {errors.year && <li><strong>Year:</strong> {errors.year.message}</li>}
+              </ul>
+              <p className="text-xs text-red-600 mt-2">
+                Note: Password is required when creating a new student (minimum 6 characters)
+              </p>
+            </div>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={handleClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting || isLoading}>
+            <Button 
+              type="submit" 
+              disabled={isSubmitting || isLoading}
+              onClick={(e) => {
+                console.log("Submit button clicked");
+                console.log("Form state:", { isSubmitting, isLoading, errors });
+                // Let the form handle validation
+              }}
+            >
               {isSubmitting
                 ? "Saving..."
                 : student

@@ -44,8 +44,14 @@ export async function GET(request: NextRequest) {
           teacher: {
             include: { user: { select: { id: true, name: true, email: true } } },
           },
+          _count: {
+            select: {
+              assignments: true,
+              attendance: true,
+            },
+          },
         },
-        orderBy: { createdAt: 'desc' } as any,
+        orderBy: { title: 'asc' },
         skip,
         take: limit,
       }),

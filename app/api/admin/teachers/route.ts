@@ -120,11 +120,25 @@ export async function DELETE(request: NextRequest) {
     const id = searchParams.get('id');
     if (!id) return NextResponse.json(apiError('Missing id'), { status: 400 });
 
+    // Unassign courses from this teacher (set teacherId to null)
+    await prisma.course.updateMany({
+      where: { teacherId: id },
+      data: { teacherId: null },
+    });
+
+    // Now delete the teacher profile
     await prisma.teacher.delete({ where: { id } });
     return NextResponse.json(apiSuccess({ id }), { status: 200 });
   } catch (error: any) {
     if (error?.code === 'P2025') {
       return NextResponse.json(apiError('Teacher not found'), { status: 404 });
+    }
+    // Handle foreign key constraint errors
+    if (error?.code === 'P2003' || error?.message?.includes('foreign key')) {
+      return NextResponse.json(
+        apiError('Cannot delete teacher: Teacher has related records that need to be handled first'),
+        { status: 409 }
+      );
     }
     console.error('DELETE /admin/teachers error:', error);
     return NextResponse.json(apiError('Internal server error'), { status: 500 });

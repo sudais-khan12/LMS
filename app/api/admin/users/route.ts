@@ -200,11 +200,105 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json(apiError('Missing id'), { status: 400 });
     }
 
+    // First, get the user to check their role and related records
+    const user = await prisma.user.findUnique({
+      where: { id },
+      include: {
+        teacher: true,
+        student: true,
+      },
+    });
+
+    if (!user) {
+      return NextResponse.json(apiError('User not found'), { status: 404 });
+    }
+
+    // Delete related records first in the correct order
+    
+    // If user is a Student, delete all student-related records
+    if (user.student) {
+      const studentId = user.student.id;
+      
+      // Delete student's submissions
+      await prisma.submission.deleteMany({
+        where: { studentId },
+      });
+
+      // Delete student's attendance records
+      await prisma.attendance.deleteMany({
+        where: { studentId },
+      });
+
+      // Delete student's reports
+      await prisma.report.deleteMany({
+        where: { studentId },
+      });
+
+      // Delete student's leave requests
+      await prisma.leaveRequest.deleteMany({
+        where: { studentId },
+      });
+
+      // Now delete the student profile
+      await prisma.student.delete({
+        where: { id: studentId },
+      });
+    }
+
+    // If user is a Teacher, handle teacher-related records
+    if (user.teacher) {
+      const teacherId = user.teacher.id;
+      
+      // Set courses to have no teacher (null teacherId) instead of deleting courses
+      await prisma.course.updateMany({
+        where: { teacherId },
+        data: { teacherId: null },
+      });
+
+      // Delete the teacher profile
+      await prisma.teacher.delete({
+        where: { id: teacherId },
+      });
+    }
+
+    // Delete user's leave requests where they are the requester
+    await prisma.leaveRequest.deleteMany({
+      where: { requesterId: id },
+    });
+
+    // Delete leave requests where user is the approver
+    await prisma.leaveRequest.deleteMany({
+      where: { approverId: id },
+    });
+
+    // Delete user's notifications
+    await prisma.notification.deleteMany({
+      where: { userId: id },
+    });
+
+    // Delete NextAuth related records (accounts and sessions)
+    await prisma.account.deleteMany({
+      where: { userId: id },
+    });
+
+    await prisma.session.deleteMany({
+      where: { userId: id },
+    });
+
+    // Now delete the user (accounts and sessions will be handled by Prisma relations)
     await prisma.user.delete({ where: { id } });
+
     return NextResponse.json(apiSuccess({ id }), { status: 200 });
   } catch (error: any) {
     if (error?.code === 'P2025') {
       return NextResponse.json(apiError('User not found'), { status: 404 });
+    }
+    // Handle foreign key constraint errors
+    if (error?.code === 'P2003' || error?.message?.includes('foreign key')) {
+      return NextResponse.json(
+        apiError('Cannot delete user: User has related records that need to be deleted first'),
+        { status: 409 }
+      );
     }
     console.error('DELETE /admin/users error:', error);
     return NextResponse.json(apiError('Internal server error'), { status: 500 });

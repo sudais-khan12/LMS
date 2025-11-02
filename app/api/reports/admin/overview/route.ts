@@ -41,6 +41,119 @@ export async function GET(request: NextRequest) {
         ? allReports.reduce((acc, r) => acc + r.gpa, 0) / allReports.length
         : 0;
 
+    // Calculate monthly user growth (last 12 months)
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const now = new Date();
+    const monthlyUsers: { [key: string]: number } = {};
+    
+    // Initialize all months to 0
+    for (let i = 11; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      monthlyUsers[monthKey] = 0;
+    }
+
+    // Get all users with creation dates
+    const allUsers = await prisma.user.findMany({
+      select: { createdAt: true },
+    });
+
+    // Count users by month
+    allUsers.forEach((user) => {
+      const userDate = new Date(user.createdAt);
+      const monthKey = `${userDate.getFullYear()}-${String(userDate.getMonth() + 1).padStart(2, '0')}`;
+      if (monthlyUsers[monthKey] !== undefined) {
+        monthlyUsers[monthKey]++;
+      }
+    });
+
+    // Format for chart (last 10 months or available months)
+    const userGrowthData = Object.entries(monthlyUsers)
+      .slice(-10) // Last 10 months
+      .map(([monthKey, count]) => {
+        const [year, month] = monthKey.split('-');
+        const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+        return {
+          month: monthNames[date.getMonth()],
+          users: count,
+        };
+      });
+
+    // Calculate users created today
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+    const newUsersToday = await prisma.user.count({
+      where: {
+        createdAt: {
+          gte: todayStart,
+          lte: todayEnd,
+        },
+      },
+    });
+
+    // Calculate course engagement data (top 10 courses by enrollments)
+    // Get all courses with counts
+    const allCourses = await prisma.course.findMany({
+      include: {
+        _count: {
+          select: {
+            attendance: true,
+            assignments: true,
+          },
+        },
+      },
+    });
+    
+    // Sort by attendance count and take top 10
+    const coursesWithCounts = allCourses
+      .sort((a, b) => b._count.attendance - a._count.attendance)
+      .slice(0, 10);
+
+    const courseEngagementData = await Promise.all(
+      coursesWithCounts.map(async (course) => {
+        // Get unique students enrolled (from attendance)
+        const uniqueStudents = await prisma.attendance.findMany({
+          where: { courseId: course.id },
+          select: { studentId: true },
+          distinct: ['studentId'],
+        });
+        const enrollments = uniqueStudents.length;
+
+        // Get total assignments
+        const assignmentsCount = course._count.assignments;
+
+        // Get submissions for assignments in this course
+        const assignments = await prisma.assignment.findMany({
+          where: { courseId: course.id },
+          select: { id: true },
+        });
+        const assignmentIds = assignments.map((a) => a.id);
+
+        // Count all submissions (submittedAt is not nullable in schema, always has a value)
+        const submissionsCount = await prisma.submission.count({
+          where: {
+            assignmentId: { in: assignmentIds },
+          },
+        });
+
+        // Calculate completion rate based on submitted assignments
+        const totalPossibleSubmissions = enrollments * assignmentsCount;
+        const completionRate =
+          totalPossibleSubmissions > 0
+            ? submissionsCount / totalPossibleSubmissions
+            : 0;
+        const completions = Math.round(enrollments * completionRate);
+
+        return {
+          course: course.title,
+          enrollments,
+          completions: Math.min(completions, enrollments),
+        };
+      })
+    );
+
     // Get recent activity logs (last 10)
     // Recent submissions, leave requests, attendance updates
     const recentSubmissions = await prisma.submission.findMany({
@@ -119,6 +232,9 @@ export async function GET(request: NextRequest) {
             ...a,
             timestamp: a.timestamp.toISOString(),
           })),
+          userGrowth: userGrowthData,
+          newUsersToday,
+          courseEngagement: courseEngagementData,
         },
       },
       { status: 200 }

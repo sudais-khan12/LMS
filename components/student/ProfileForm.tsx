@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
-import { User, Mail, GraduationCap, Lock, Camera, Save, Bell, Settings, BookOpen, ClipboardList } from "lucide-react";
+import { User, Mail, GraduationCap, Lock, Camera, Save, Bell, Settings, BookOpen, ClipboardList, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 
@@ -20,18 +20,47 @@ interface ProfileFormProps {
     phone: string;
     avatar?: string;
   };
+  isEditing?: boolean;
+  onSave?: (data: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    password?: string;
+    enrollmentNo?: string;
+    semester?: number;
+    section?: string;
+  }) => Promise<void>;
+  isLoading?: boolean;
 }
 
-export default function ProfileForm({ initialData }: ProfileFormProps) {
+export default function ProfileForm({ 
+  initialData,
+  isEditing = false,
+  onSave,
+  isLoading = false,
+}: ProfileFormProps) {
   const { toast } = useToast();
   
   const [formData, setFormData] = useState({
-    name: initialData?.name || "John Doe",
-    email: initialData?.email || "john.doe@student.com",
-    studentId: initialData?.studentId || "STU-2024-001",
-    phone: initialData?.phone || "+1 (555) 123-4567",
+    name: initialData?.name || "",
+    email: initialData?.email || "",
+    studentId: initialData?.studentId || "",
+    phone: initialData?.phone || "",
     avatar: initialData?.avatar || "/avatars/student.jpg"
   });
+
+  // Update form data when initialData changes
+  React.useEffect(() => {
+    if (initialData) {
+      setFormData({
+        name: initialData.name || "",
+        email: initialData.email || "",
+        studentId: initialData.studentId || "",
+        phone: initialData.phone || "",
+        avatar: initialData.avatar || "/avatars/student.jpg",
+      });
+    }
+  }, [initialData]);
 
   const [passwordData, setPasswordData] = useState({
     currentPassword: "",
@@ -54,14 +83,15 @@ export default function ProfileForm({ initialData }: ProfileFormProps) {
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => {
       const newData = { ...prev, [field]: value };
-      // Check if form has changed
-      const hasChanged = JSON.stringify(newData) !== JSON.stringify({
-        name: initialData?.name || "John Doe",
-        email: initialData?.email || "john.doe@student.com",
-        studentId: initialData?.studentId || "STU-2024-001",
-        phone: initialData?.phone || "+1 (555) 123-4567",
+      // Check if form has changed from initial data
+      const initial = {
+        name: initialData?.name || "",
+        email: initialData?.email || "",
+        studentId: initialData?.studentId || "",
+        phone: initialData?.phone || "",
         avatar: initialData?.avatar || "/avatars/student.jpg"
-      });
+      };
+      const hasChanged = JSON.stringify(newData) !== JSON.stringify(initial);
       setIsDirty(hasChanged);
       
       // Clear error when user starts typing
@@ -120,7 +150,9 @@ export default function ProfileForm({ initialData }: ProfileFormProps) {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (!isEditing) return;
+    
     if (!validateForm()) {
       toast({
         title: "Validation Error",
@@ -130,7 +162,44 @@ export default function ProfileForm({ initialData }: ProfileFormProps) {
       return;
     }
     
-    // Simulate save
+    // Prepare data for API
+    const updateData: {
+      name?: string;
+      email?: string;
+      phone?: string;
+      password?: string;
+      enrollmentNo?: string;
+      semester?: number;
+      section?: string;
+    } = {};
+    
+    if (formData.name !== initialData?.name) updateData.name = formData.name;
+    if (formData.email !== initialData?.email) updateData.email = formData.email;
+    if (formData.phone !== initialData?.phone) updateData.phone = formData.phone;
+    
+    // Handle password change
+    if (passwordData.newPassword && passwordData.newPassword.length > 0) {
+      if (passwordData.newPassword !== passwordData.confirmPassword) {
+        setPasswordErrors({ confirmPassword: "Passwords do not match" });
+        return;
+      }
+      if (passwordData.newPassword.length < 6) {
+        setPasswordErrors({ newPassword: "Password must be at least 6 characters" });
+        return;
+      }
+      updateData.password = passwordData.newPassword;
+    }
+    
+    if (onSave) {
+      try {
+        await onSave(updateData);
+        setIsDirty(false);
+        setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      } catch (error) {
+        // Error is handled by parent
+      }
+    } else {
+      // Fallback - simulate save
     toast({
       title: "Profile Updated",
       description: "Your profile has been updated successfully!",
@@ -238,6 +307,8 @@ export default function ProfileForm({ initialData }: ProfileFormProps) {
                 value={formData.name}
                 onChange={(e) => handleInputChange("name", e.target.value)}
                 className={`bg-background/50 border-border/50 ${errors.name ? 'border-red-500' : ''}`}
+                disabled={!isEditing || isLoading}
+                readOnly={!isEditing}
               />
               {errors.name && <p className="text-sm text-red-500">{errors.name}</p>}
             </div>
@@ -254,6 +325,8 @@ export default function ProfileForm({ initialData }: ProfileFormProps) {
                   value={formData.email}
                   onChange={(e) => handleInputChange("email", e.target.value)}
                   className={`pl-10 bg-background/50 border-border/50 ${errors.email ? 'border-red-500' : ''}`}
+                  disabled={!isEditing || isLoading}
+                  readOnly={!isEditing}
                 />
               </div>
               {errors.email && <p className="text-sm text-red-500">{errors.email}</p>}
@@ -284,6 +357,8 @@ export default function ProfileForm({ initialData }: ProfileFormProps) {
                 value={formData.phone}
                 onChange={(e) => handleInputChange("phone", e.target.value)}
                 className={`bg-background/50 border-border/50 ${errors.phone ? 'border-red-500' : ''}`}
+                disabled={!isEditing || isLoading}
+                readOnly={!isEditing}
               />
               {errors.phone && <p className="text-sm text-red-500">{errors.phone}</p>}
             </div>
@@ -292,10 +367,19 @@ export default function ProfileForm({ initialData }: ProfileFormProps) {
           <Button 
             onClick={handleSave} 
             className="w-full md:w-auto"
-            disabled={!isDirty}
+            disabled={!isDirty || isLoading || !isEditing}
           >
-            <Save className="h-4 w-4 mr-2" />
-            Save Changes
+            {isLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                Save Changes
+              </>
+            )}
           </Button>
         </CardContent>
       </Card>

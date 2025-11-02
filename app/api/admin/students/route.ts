@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
         },
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' } as any,
+        orderBy: { user: { createdAt: 'desc' } },
       }),
       prisma.student.count({ where }),
     ]);
@@ -140,11 +140,41 @@ export async function DELETE(request: NextRequest) {
     const id = searchParams.get('id');
     if (!id) return NextResponse.json(apiError('Missing id'), { status: 400 });
 
+    // Delete related records first
+    const student = await prisma.student.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!student) {
+      return NextResponse.json(apiError('Student not found'), { status: 404 });
+    }
+
+    // Delete student's submissions
+    await prisma.submission.deleteMany({ where: { studentId: id } });
+
+    // Delete student's attendance records
+    await prisma.attendance.deleteMany({ where: { studentId: id } });
+
+    // Delete student's reports
+    await prisma.report.deleteMany({ where: { studentId: id } });
+
+    // Delete student's leave requests
+    await prisma.leaveRequest.deleteMany({ where: { studentId: id } });
+
+    // Now delete the student profile
     await prisma.student.delete({ where: { id } });
     return NextResponse.json(apiSuccess({ id }), { status: 200 });
   } catch (error: any) {
     if (error?.code === 'P2025') {
       return NextResponse.json(apiError('Student not found'), { status: 404 });
+    }
+    // Handle foreign key constraint errors
+    if (error?.code === 'P2003' || error?.message?.includes('foreign key')) {
+      return NextResponse.json(
+        apiError('Cannot delete student: Student has related records that need to be deleted first'),
+        { status: 409 }
+      );
     }
     console.error('DELETE /admin/students error:', error);
     return NextResponse.json(apiError('Internal server error'), { status: 500 });

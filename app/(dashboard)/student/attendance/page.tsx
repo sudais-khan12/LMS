@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
-import { Calendar, TrendingUp, Clock, CheckCircle, Filter } from "lucide-react";
+import { Calendar, TrendingUp, Clock, CheckCircle, Filter, Loader2 } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -19,34 +19,58 @@ import {
 } from "recharts";
 import {
   AttendanceCalendar,
-  mockAttendanceData,
   calculateAttendanceSummary,
 } from "@/features/attendance";
 import type { AttendanceRecord } from "@/features/attendance";
-
-// Use mock data from feature module
-const allAttendanceData: AttendanceRecord[] = mockAttendanceData;
-
-// Get unique courses for filter
-const uniqueCourses = [
-  "All",
-  ...new Set(allAttendanceData.map((a) => a.course)),
-];
-
-// Monthly attendance trend data
-const monthlyTrend = [
-  { month: "Jan", attendance: 88 },
-  { month: "Feb", attendance: 94 },
-  { month: "Mar", attendance: 91 },
-  { month: "Apr", attendance: 89 },
-  { month: "May", attendance: 95 },
-  { month: "Jun", attendance: 92 },
-];
+import { useStudentAttendanceRecords, useStudentCourses } from "@/lib/hooks/api/student";
 
 export default function AttendancePage() {
-  const [dateFrom, setDateFrom] = useState("2024-02-01");
-  const [dateTo, setDateTo] = useState("2024-02-20");
+  // Set default date range to last 30 days
+  const today = new Date();
+  const thirtyDaysAgo = new Date(today);
+  thirtyDaysAgo.setDate(today.getDate() - 30);
+  
+  const [dateFrom, setDateFrom] = useState(thirtyDaysAgo.toISOString().split('T')[0]);
+  const [dateTo, setDateTo] = useState(today.toISOString().split('T')[0]);
   const [selectedCourse, setSelectedCourse] = useState("All");
+  
+  // Fetch attendance records
+  const { data: attendanceData, isLoading: isLoadingAttendance } = useStudentAttendanceRecords({
+    limit: 1000, // Get a large number to allow client-side filtering
+  });
+  
+  // Fetch courses for filter dropdown
+  const { data: coursesData } = useStudentCourses({ limit: 100 });
+  
+  // Get unique courses for filter
+  const uniqueCourses = useMemo(() => {
+    const courses = ["All"];
+    if (attendanceData?.items) {
+      const courseSet = new Set(
+        attendanceData.items
+          .map((a) => a.course?.title || a.courseId)
+          .filter(Boolean)
+      );
+      courses.push(...Array.from(courseSet));
+    }
+    return courses;
+  }, [attendanceData]);
+
+  // Convert API data to AttendanceRecord format
+  const allAttendanceData: AttendanceRecord[] = useMemo(() => {
+    if (!attendanceData?.items) return [];
+    
+    return attendanceData.items.map((record) => ({
+      id: record.id,
+      date: new Date(record.date).toISOString().split('T')[0],
+      course: record.course?.title || record.courseId,
+      status: record.status.toLowerCase() as "present" | "absent" | "late" | "excused",
+      time: new Date(record.date).toLocaleTimeString("en-US", { 
+        hour: "numeric", 
+        minute: "2-digit" 
+      }),
+    }));
+  }, [attendanceData]);
 
   // Filter data based on selected filters
   const filteredData = useMemo(() => {
@@ -56,7 +80,7 @@ export default function AttendancePage() {
         selectedCourse === "All" || record.course === selectedCourse;
       return dateInRange && courseMatches;
     });
-  }, [dateFrom, dateTo, selectedCourse]);
+  }, [allAttendanceData, dateFrom, dateTo, selectedCourse]);
 
   // Calculate summary from filtered data using helper from feature module
   const summary = useMemo(
@@ -86,6 +110,14 @@ export default function AttendancePage() {
         attendance: Math.round((data.present / data.total) * 100),
       }));
   }, [filteredData]);
+
+  if (isLoadingAttendance) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
