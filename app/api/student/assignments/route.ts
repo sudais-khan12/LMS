@@ -35,6 +35,12 @@ export async function GET(request: NextRequest) {
           course: { select: { id: true, title: true, code: true } },
           submissions: {
             where: { studentId: studentAuth.student.id },
+            select: { 
+              id: true, 
+              fileUrl: true, 
+              grade: true, 
+              submittedAt: true 
+            },
             take: 1,
           },
         },
@@ -45,7 +51,16 @@ export async function GET(request: NextRequest) {
       prisma.assignment.count({ where }),
     ]);
 
-    return NextResponse.json(apiSuccess({ items, total, limit, skip }), { status: 200 });
+    // Transform items to include submission status and grade
+    const transformedItems = items.map((assignment) => {
+      const submission = assignment.submissions?.[0];
+      return {
+        ...assignment,
+        submission,
+      };
+    });
+
+    return NextResponse.json(apiSuccess({ items: transformedItems, total, limit, skip }), { status: 200 });
   } catch (error) {
     console.error('GET /api/student/assignments error:', error);
     return NextResponse.json(apiError('Internal server error'), { status: 500 });

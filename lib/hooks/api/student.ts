@@ -139,6 +139,75 @@ export function useSubmitStudentAssignment() {
   });
 }
 
+export function useUpdateStudentSubmission() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (data: {
+      submissionId: string;
+      fileUrl?: string;
+      content?: string;
+    }) => {
+      const response = await apiClient<ApiSuccess<any>>(
+        `/api/student/submissions/${data.submissionId}`,
+        {
+          method: "PATCH",
+          body: { fileUrl: data.fileUrl, content: data.content },
+        }
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["student", "assignments"] });
+      queryClient.invalidateQueries({ queryKey: ["student", "submissions"] });
+      toast({
+        title: "Success",
+        description: "Submission updated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update submission",
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+export function useDeleteStudentSubmission() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (submissionId: string) => {
+      const response = await apiClient<ApiSuccess<any>>(
+        `/api/student/submissions/${submissionId}`,
+        {
+          method: "DELETE",
+        }
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["student", "assignments"] });
+      queryClient.invalidateQueries({ queryKey: ["student", "submissions"] });
+      toast({
+        title: "Success",
+        description: "Submission deleted successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete submission",
+        variant: "destructive",
+      });
+    },
+  });
+}
+
 // Student Attendance Hook
 export function useStudentAttendance() {
   return useQuery({

@@ -119,16 +119,16 @@ export async function GET(_request: NextRequest) {
     // Get recent announcements (notifications)
     const recentNotifications = await prisma.notification.findMany({
       where: {
-        userId: studentAuth.user.id,
+        userId: studentAuth.session.user.id,
       },
       orderBy: { createdAt: 'desc' },
       take: 5,
       select: {
         id: true,
         title: true,
-        message: true,
+        body: true,
         createdAt: true,
-        type: true,
+        category: true,
       },
     });
 
@@ -150,9 +150,9 @@ export async function GET(_request: NextRequest) {
         recentNotifications: recentNotifications.map((n) => ({
           id: n.id,
           title: n.title,
-          content: n.message,
+          content: n.body,
           timestamp: n.createdAt.toISOString(),
-          type: n.type || 'announcement',
+          type: n.category || 'announcement',
         })),
       }),
       { status: 200 }

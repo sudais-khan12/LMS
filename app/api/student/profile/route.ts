@@ -21,7 +21,7 @@ export async function GET(_request: NextRequest) {
 
   try {
     const user = await prisma.user.findUnique({
-      where: { id: studentAuth.user.id },
+      where: { id: studentAuth.session.user.id },
       include: {
         student: true,
       },
@@ -111,7 +111,7 @@ export async function PATCH(request: NextRequest) {
     if (data.email) {
       // Check if email already exists for another user
       const existingUser = await prisma.user.findFirst({
-        where: { email: data.email, id: { not: studentAuth.user.id } },
+        where: { email: data.email, id: { not: studentAuth.session.user.id } },
       });
       if (existingUser) {
         return NextResponse.json(apiError('Email already exists'), { status: 409 });
@@ -125,7 +125,7 @@ export async function PATCH(request: NextRequest) {
     // Update user
     if (Object.keys(updates).length > 0) {
       await prisma.user.update({
-        where: { id: studentAuth.user.id },
+        where: { id: studentAuth.session.user.id },
         data: updates,
       });
     }
@@ -146,7 +146,7 @@ export async function PATCH(request: NextRequest) {
 
     // Fetch updated profile
     const updatedUser = await prisma.user.findUnique({
-      where: { id: studentAuth.user.id },
+      where: { id: studentAuth.session.user.id },
       include: { student: true },
     });
 

@@ -7,10 +7,7 @@ import ChartCard from "@/components/ui/ChartCard";
 import ReportFiltersComponent from "@/components/admin/reports/ReportFilters";
 import ExportButton from "@/components/admin/reports/ExportButton";
 import { useToast } from "@/hooks/use-toast";
-import {
-  glassStyles,
-  animationClasses,
-} from "@/config/teacher-constants";
+import { glassStyles, animationClasses } from "@/config/teacher-constants";
 import {
   useTeacherReports,
   useTeacherClasses,
@@ -76,14 +73,9 @@ export default function ReportsPage() {
   const pageSize = 20;
 
   // API hooks
-  const {
-    data: reportsData,
-    isLoading: reportsLoading,
-  } = useTeacherReports();
+  const { data: reportsData, isLoading: reportsLoading } = useTeacherReports();
   const { data: coursesData } = useTeacherClasses({ limit: 100 });
-  const {
-    data: studentsData,
-  } = useTeacherStudents({ limit: 1000 });
+  const { data: studentsData } = useTeacherStudents({ limit: 1000 });
 
   const courses = coursesData?.items || [];
   const reportsStudents = reportsData?.students || [];
@@ -94,18 +86,21 @@ export default function ReportsPage() {
   const students = useMemo(() => {
     return apiStudents.flatMap((student) => {
       // Create one entry per course for the student
-      return student.courses.map((course) => ({
-        id: `${student.id}-${course.id}`,
-        name: student.name,
-        studentId: student.studentId,
-        classId: course.id,
-        className: course.title,
-        attendance: student.attendance,
-        progress: student.progress,
-        grade: student.grade,
-        gpa: student.latestGpa,
-        coursesEnrolled: student.courses.length,
-      } as StudentUI));
+      return student.courses.map(
+        (course) =>
+          ({
+            id: `${student.id}-${course.id}`,
+            name: student.name,
+            studentId: student.studentId,
+            classId: course.id,
+            className: course.title,
+            attendance: student.attendance,
+            progress: student.progress,
+            grade: student.grade,
+            gpa: student.latestGpa,
+            coursesEnrolled: student.courses.length,
+          } as StudentUI)
+      );
     });
   }, [apiStudents]);
 
@@ -144,19 +139,17 @@ export default function ReportsPage() {
 
   // Pagination
   const totalPages = Math.ceil(
-    (currentTab === "attendance" 
-      ? filteredData.attendanceData.length 
+    (currentTab === "attendance"
+      ? filteredData.attendanceData.length
       : filteredData.performanceData.length) / pageSize
   );
-  
+
   const paginatedData = useMemo(() => {
-    const data = currentTab === "attendance" 
-      ? filteredData.attendanceData 
-      : filteredData.performanceData;
-    return data.slice(
-      currentPage * pageSize,
-      (currentPage + 1) * pageSize
-    );
+    const data =
+      currentTab === "attendance"
+        ? filteredData.attendanceData
+        : filteredData.performanceData;
+    return data.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
   }, [currentTab, filteredData, currentPage, pageSize]);
 
   // Reset to first page when filters or tab change
@@ -197,20 +190,23 @@ export default function ReportsPage() {
   const performanceChartData = [
     {
       course: "A",
-      enrollments: filteredData.performanceData.filter((s) => s.grade.startsWith("A"))
-        .length,
+      enrollments: filteredData.performanceData.filter((s) =>
+        s.grade.startsWith("A")
+      ).length,
       completions: 0,
     },
     {
       course: "B",
-      enrollments: filteredData.performanceData.filter((s) => s.grade.startsWith("B"))
-        .length,
+      enrollments: filteredData.performanceData.filter((s) =>
+        s.grade.startsWith("B")
+      ).length,
       completions: 0,
     },
     {
       course: "C",
-      enrollments: filteredData.performanceData.filter((s) => s.grade.startsWith("C"))
-        .length,
+      enrollments: filteredData.performanceData.filter((s) =>
+        s.grade.startsWith("C")
+      ).length,
       completions: 0,
     },
     {
@@ -239,7 +235,9 @@ export default function ReportsPage() {
   const classPerformanceData = useMemo(() => {
     return courses.map((course) => {
       const courseStudents = students.filter((s) => s.classId === course.id);
-      const uniqueCourseStudents = [...new Set(courseStudents.map((s) => s.studentId))];
+      const uniqueCourseStudents = [
+        ...new Set(courseStudents.map((s) => s.studentId)),
+      ];
       return {
         course: course.title,
         enrollments: uniqueCourseStudents.length,
@@ -251,22 +249,38 @@ export default function ReportsPage() {
   // Monthly stats based on unique students (last 6 months)
   // In a full implementation, this would query actual submissions by month from the API
   const monthlyStats = useMemo(() => {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     const now = new Date();
     const uniqueStudentCount = uniqueStudents.length;
-    
+
     // Generate monthly stats based on unique students count
     // This is an approximation - in a full implementation, you'd query actual submissions by month
     return Array.from({ length: 6 }, (_, i) => {
       const date = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
       const monthName = months[date.getMonth()];
-      
+
       // Estimate submissions based on unique students (70-85% typically submit)
       // Use a deterministic calculation instead of random for consistent results
       const baseRate = 0.75;
       const variation = (i % 3) * 0.05; // Small variation between months (0%, 5%, 10% pattern)
-      const users = Math.max(0, Math.floor(uniqueStudentCount * (baseRate + variation)));
-      
+      const users = Math.max(
+        0,
+        Math.floor(uniqueStudentCount * (baseRate + variation))
+      );
+
       return { month: monthName, users };
     });
   }, [uniqueStudents.length]);
@@ -567,8 +581,8 @@ export default function ReportsPage() {
           ) : paginatedData.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-muted-foreground">
-                {students.length === 0 
-                  ? "No students enrolled in your courses yet" 
+                {students.length === 0
+                  ? "No students enrolled in your courses yet"
                   : currentPage > 0
                   ? "No more results on this page"
                   : "No data found matching your filters"}
@@ -672,40 +686,49 @@ export default function ReportsPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setCurrentPage((prev) => Math.max(0, prev - 1))}
+                      onClick={() =>
+                        setCurrentPage((prev) => Math.max(0, prev - 1))
+                      }
                       disabled={currentPage === 0}
                     >
                       Previous
                     </Button>
                     <div className="flex items-center gap-1">
-                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                        let pageNum: number;
-                        if (totalPages <= 5) {
-                          pageNum = i;
-                        } else if (currentPage < 3) {
-                          pageNum = i;
-                        } else if (currentPage > totalPages - 4) {
-                          pageNum = totalPages - 5 + i;
-                        } else {
-                          pageNum = currentPage - 2 + i;
+                      {Array.from(
+                        { length: Math.min(5, totalPages) },
+                        (_, i) => {
+                          let pageNum: number;
+                          if (totalPages <= 5) {
+                            pageNum = i;
+                          } else if (currentPage < 3) {
+                            pageNum = i;
+                          } else if (currentPage > totalPages - 4) {
+                            pageNum = totalPages - 5 + i;
+                          } else {
+                            pageNum = currentPage - 2 + i;
+                          }
+                          return (
+                            <Button
+                              key={pageNum}
+                              variant={
+                                currentPage === pageNum ? "default" : "outline"
+                              }
+                              size="sm"
+                              onClick={() => setCurrentPage(pageNum)}
+                            >
+                              {pageNum + 1}
+                            </Button>
+                          );
                         }
-                        return (
-                          <Button
-                            key={pageNum}
-                            variant={currentPage === pageNum ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => setCurrentPage(pageNum)}
-                          >
-                            {pageNum + 1}
-                          </Button>
-                        );
-                      })}
+                      )}
                     </div>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() =>
-                        setCurrentPage((prev) => Math.min(totalPages - 1, prev + 1))
+                        setCurrentPage((prev) =>
+                          Math.min(totalPages - 1, prev + 1)
+                        )
                       }
                       disabled={currentPage === totalPages - 1}
                     >
