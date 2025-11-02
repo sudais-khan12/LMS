@@ -40,6 +40,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useTeacherClasses,
   useCreateTeacherClass,
@@ -49,6 +50,8 @@ import {
 } from "@/lib/hooks/api/teacher";
 import { TableSkeleton, CardSkeleton } from "@/components/ui/loading-skeleton";
 import { apiClient } from "@/lib/apiClient";
+import { Textarea } from "@/components/ui/textarea";
+import { Loader2, ArrowUp, ArrowDown } from "lucide-react";
 
 // Local type for UI display
 interface ClassWithDetails {
@@ -82,23 +85,49 @@ export default function MyClassesPage() {
 
   const apiClasses = classesData?.items || [];
 
-  // Map API classes to UI format - using _count for totalStudents
+  // State for student counts per course
+  const [studentCounts, setStudentCounts] = useState<Record<string, number>>({});
+
+  // Map API classes to UI format
   const classes = useMemo(() => {
     return apiClasses.map((cls: any) => ({
       id: cls.id,
       subject: cls.title,
       classCode: cls.code,
       description: cls.description || "",
-      schedule: cls.schedule || "",
-      room: cls.room || "",
-      grade: cls.grade || "",
-      section: cls.section || "",
-      status: (cls.status || "Active") as "Active" | "Inactive" | "Completed",
-      totalStudents: cls._count?.attendance || 0,
+      totalStudents: studentCounts[cls.id] || 0,
       students: [],
       assignments: [],
     }));
-  }, [apiClasses]);
+  }, [apiClasses, studentCounts]);
+
+  // Calculate unique students per course
+  useEffect(() => {
+    const fetchUniqueStudents = async () => {
+      const counts: Record<string, number> = {};
+      await Promise.all(
+        apiClasses.map(async (cls: any) => {
+          try {
+            const response = await apiClient<{ success: boolean; data?: { students: any[] } }>(
+              `/api/courses/${cls.id}/students`
+            );
+            if (response.success && response.data?.students) {
+              counts[cls.id] = response.data.students.length;
+            } else {
+              counts[cls.id] = 0;
+            }
+          } catch (error) {
+            // Ignore errors, use 0 as default
+            counts[cls.id] = 0;
+          }
+        })
+      );
+      setStudentCounts(counts);
+    };
+    if (apiClasses.length > 0) {
+      fetchUniqueStudents();
+    }
+  }, [apiClasses]); // Re-run when API data changes
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -109,44 +138,23 @@ export default function MyClassesPage() {
   );
   const [loadingCourseDetails, setLoadingCourseDetails] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [gradeFilter, setGradeFilter] = useState<string>("all");
-  const [sectionFilter, setSectionFilter] = useState<string>("all");
 
-  // Form states for Create/Edit
+  const queryClient = useQueryClient();
+  const [currentPage, setCurrentPage] = useState(0);
+  const pageSize = 12;
+
+  // Form states for Create/Edit (only fields that exist in Course model)
   const [formData, setFormData] = useState<{
-    subject: string;
-    classCode: string;
+    title: string;
+    code: string;
     description: string;
-    schedule: string;
-    room: string;
-    grade: string;
-    section: string;
-    status: "Active" | "Inactive" | "Completed";
   }>({
-    subject: "",
-    classCode: "",
+    title: "",
+    code: "",
     description: "",
-    schedule: "",
-    room: "",
-    grade: "",
-    section: "",
-    status: "Active",
   });
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "Active":
-        return "bg-green-100 text-green-800 border-green-200";
-      case "Inactive":
-        return "bg-gray-100 text-gray-800 border-gray-200";
-      case "Completed":
-        return "bg-blue-100 text-blue-800 border-blue-200";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
-    }
-  };
-
-  // Filter classes based on search, grade, and section
+  // Filter classes based on search
   const filteredClasses = useMemo(() => {
     let filtered = classes;
 
@@ -158,23 +166,24 @@ export default function MyClassesPage() {
       );
     }
 
-    if (gradeFilter !== "all") {
-      filtered = filtered.filter((c) => c.grade === gradeFilter);
-    }
-
-    if (sectionFilter !== "all") {
-      filtered = filtered.filter((c) => c.section === sectionFilter);
-    }
-
     return filtered;
-  }, [searchQuery, gradeFilter, sectionFilter, classes]);
+  }, [searchQuery, classes]);
+
+  // Paginate filtered classes
+  const totalPages = Math.ceil(filteredClasses.length / pageSize);
+  const paginatedClasses = filteredClasses.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+
+  // Reset pagination when search changes
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [searchQuery]);
 
   // Create new class
   const handleCreateClass = async () => {
-    if (!formData.subject || !formData.classCode) {
+    if (!formData.title || !formData.code) {
       toast({
         title: "Validation Error",
-        description: "Please fill in all required fields",
+        description: "Please fill in title and code",
         variant: "destructive",
       });
       return;
@@ -182,12 +191,14 @@ export default function MyClassesPage() {
 
     try {
       await createClass.mutateAsync({
-        title: formData.subject,
-        code: formData.classCode,
-        description: formData.description,
+        title: formData.title,
+        code: formData.code,
+        description: formData.description || undefined,
       });
       setIsCreateModalOpen(false);
       resetForm();
+      setCurrentPage(0); // Reset to first page
+      await queryClient.invalidateQueries({ queryKey: ["teacher", "classes"] });
       await refetch();
     } catch (error) {
       // Error handled by mutation hook
@@ -196,10 +207,10 @@ export default function MyClassesPage() {
 
   // Edit class
   const handleEditClass = async () => {
-    if (!selectedClass || !formData.subject || !formData.classCode) {
+    if (!selectedClass || !formData.title || !formData.code) {
       toast({
         title: "Validation Error",
-        description: "Please fill in all required fields",
+        description: "Please fill in title and code",
         variant: "destructive",
       });
       return;
@@ -208,13 +219,14 @@ export default function MyClassesPage() {
     try {
       await updateClass.mutateAsync({
         id: selectedClass.id,
-        title: formData.subject,
-        code: formData.classCode,
-        description: formData.description,
+        title: formData.title,
+        code: formData.code,
+        description: formData.description || undefined,
       });
       setIsEditModalOpen(false);
       resetForm();
       setSelectedClass(null);
+      await queryClient.invalidateQueries({ queryKey: ["teacher", "classes"] });
       await refetch();
     } catch (error) {
       // Error handled by mutation hook
@@ -229,6 +241,7 @@ export default function MyClassesPage() {
       await deleteClass.mutateAsync(selectedClass.id);
       setIsDeleteModalOpen(false);
       setSelectedClass(null);
+      await queryClient.invalidateQueries({ queryKey: ["teacher", "classes"] });
       await refetch();
     } catch (error) {
       // Error handled by mutation hook
@@ -289,28 +302,18 @@ export default function MyClassesPage() {
 
   const resetForm = () => {
     setFormData({
-      subject: "",
-      classCode: "",
+      title: "",
+      code: "",
       description: "",
-      schedule: "",
-      room: "",
-      grade: "",
-      section: "",
-      status: "Active",
     });
   };
 
   const openEditModal = (classItem: ClassWithDetails) => {
     setSelectedClass(classItem);
     setFormData({
-      subject: classItem.subject,
-      classCode: classItem.classCode,
+      title: classItem.subject,
+      code: classItem.classCode,
       description: classItem.description || "",
-      schedule: classItem.schedule || "",
-      room: classItem.room || "",
-      grade: classItem.grade || "",
-      section: classItem.section || "",
-      status: classItem.status || "Active",
     });
     setIsEditModalOpen(true);
   };
@@ -326,14 +329,6 @@ export default function MyClassesPage() {
     setSelectedClass(classItem);
     setIsDeleteModalOpen(true);
   };
-
-  // Get unique grades and sections
-  const uniqueGrades = [
-    ...new Set(classes.map((c) => c.grade).filter(Boolean)),
-  ] as string[];
-  const uniqueSections = [
-    ...new Set(classes.map((c) => c.section).filter(Boolean)),
-  ] as string[];
 
   return (
     <div className="space-y-6">
@@ -361,42 +356,15 @@ export default function MyClassesPage() {
           </Button>
         </div>
 
-        {/* Search and Filters */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="md:col-span-2">
-            <Input
-              withSearchIcon={true}
-              placeholder="Search by subject or code..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <Select value={gradeFilter} onValueChange={setGradeFilter}>
-            <SelectTrigger>
-              <SelectValue placeholder="All Grades" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Grades</SelectItem>
-              {uniqueGrades.map((grade) => (
-                <SelectItem key={grade} value={grade}>
-                  {grade}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={sectionFilter} onValueChange={setSectionFilter}>
-            <SelectTrigger>
-              <SelectValue placeholder="All Sections" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Sections</SelectItem>
-              {uniqueSections.map((section) => (
-                <SelectItem key={section} value={section}>
-                  {section}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        {/* Search */}
+        <div className="flex items-center gap-4">
+          <Input
+            withSearchIcon={true}
+            placeholder="Search by subject or code..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="max-w-md"
+          />
         </div>
       </div>
 
@@ -422,8 +390,9 @@ export default function MyClassesPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredClasses.map((classItem) => (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {paginatedClasses.map((classItem) => (
             <Card
               key={classItem.id}
               className={cn(
@@ -448,35 +417,21 @@ export default function MyClassesPage() {
                       </p>
                     </div>
                   </div>
-                  <Badge
-                    variant="outline"
-                    className={cn("text-xs", getStatusColor(classItem.status))}
-                  >
-                    {classItem.status}
-                  </Badge>
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
                   {/* Class Info */}
                   <div className="space-y-2">
+                    {classItem.description && (
+                      <p className="text-sm text-muted-foreground line-clamp-2">
+                        {classItem.description}
+                      </p>
+                    )}
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Users className="h-4 w-4" />
                       <span>{classItem.totalStudents} students enrolled</span>
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Clock className="h-4 w-4" />
-                      <span>{classItem.schedule}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <MapPin className="h-4 w-4" />
-                      <span>{classItem.room}</span>
-                    </div>
-                    {classItem.grade && (
-                      <div className="text-xs text-muted-foreground">
-                        {classItem.grade} - Section {classItem.section}
-                      </div>
-                    )}
                   </div>
 
                   {/* Action Buttons */}
@@ -513,7 +468,52 @@ export default function MyClassesPage() {
               </CardContent>
             </Card>
           ))}
-        </div>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <Card
+              className={cn(
+                glassStyles.card,
+                "rounded-2xl shadow-glass-sm",
+                animationClasses.scaleIn
+              )}
+            >
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {currentPage * pageSize + 1} to {Math.min((currentPage + 1) * pageSize, filteredClasses.length)} of {filteredClasses.length} classes
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+                      disabled={currentPage === 0 || isLoading}
+                      className="flex items-center gap-1"
+                    >
+                      <ArrowUp className="h-4 w-4 rotate-[-90deg]" />
+                      Previous
+                    </Button>
+                    <span className="text-sm text-muted-foreground px-2">
+                      Page {currentPage + 1} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
+                      disabled={(currentPage + 1) * pageSize >= filteredClasses.length || isLoading}
+                      className="flex items-center gap-1"
+                    >
+                      Next
+                      <ArrowDown className="h-4 w-4 rotate-[-90deg]" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
       )}
 
       {/* Quick Stats */}
@@ -589,7 +589,7 @@ export default function MyClassesPage() {
                   Active Classes
                 </p>
                 <p className="text-2xl font-bold text-foreground">
-                  {classes.filter((c) => c.status === "Active").length}
+                  {classes.length}
                 </p>
               </div>
             </div>
@@ -606,94 +606,65 @@ export default function MyClassesPage() {
               Fill in the details to create a new class.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-4 py-4">
+          <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="subject">Subject *</Label>
+              <Label htmlFor="title">Title *</Label>
               <Input
-                id="subject"
-                value={formData.subject}
+                id="title"
+                value={formData.title}
                 onChange={(e) =>
-                  setFormData({ ...formData, subject: e.target.value })
+                  setFormData({ ...formData, title: e.target.value })
                 }
-                placeholder="Enter subject"
+                placeholder="Enter course title"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="classCode">Class Code *</Label>
+              <Label htmlFor="code">Code *</Label>
               <Input
-                id="classCode"
-                value={formData.classCode}
+                id="code"
+                value={formData.code}
                 onChange={(e) =>
-                  setFormData({ ...formData, classCode: e.target.value })
+                  setFormData({ ...formData, code: e.target.value })
                 }
-                placeholder="Enter class code"
+                placeholder="Enter course code (must be unique)"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="grade">Grade</Label>
-              <Input
-                id="grade"
-                value={formData.grade}
-                onChange={(e) =>
-                  setFormData({ ...formData, grade: e.target.value })
-                }
-                placeholder="Enter grade"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="section">Section</Label>
-              <Input
-                id="section"
-                value={formData.section}
-                onChange={(e) =>
-                  setFormData({ ...formData, section: e.target.value })
-                }
-                placeholder="Enter section"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="schedule">Schedule</Label>
-              <Input
-                id="schedule"
-                value={formData.schedule}
-                onChange={(e) =>
-                  setFormData({ ...formData, schedule: e.target.value })
-                }
-                placeholder="e.g., Mon, Wed, Fri - 09:00 AM"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="room">Room</Label>
-              <Input
-                id="room"
-                value={formData.room}
-                onChange={(e) =>
-                  setFormData({ ...formData, room: e.target.value })
-                }
-                placeholder="Enter room"
-              />
-            </div>
-            <div className="col-span-2 space-y-2">
               <Label htmlFor="description">Description</Label>
-              <textarea
+              <Textarea
                 id="description"
                 value={formData.description}
                 onChange={(e) =>
                   setFormData({ ...formData, description: e.target.value })
                 }
-                placeholder="Enter description"
-                className="w-full min-h-[100px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                placeholder="Enter course description"
+                className="min-h-[100px]"
               />
             </div>
           </div>
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setIsCreateModalOpen(false)}
+              onClick={() => {
+                setIsCreateModalOpen(false);
+                resetForm();
+              }}
             >
               Cancel
             </Button>
-            <Button onClick={handleCreateClass}>Create</Button>
+            <Button 
+              onClick={handleCreateClass}
+              disabled={createClass.isPending}
+            >
+              {createClass.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                "Create"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -707,91 +678,66 @@ export default function MyClassesPage() {
               Update the class information below.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-4 py-4">
+          <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-subject">Subject *</Label>
+              <Label htmlFor="edit-title">Title *</Label>
               <Input
-                id="edit-subject"
-                value={formData.subject}
+                id="edit-title"
+                value={formData.title}
                 onChange={(e) =>
-                  setFormData({ ...formData, subject: e.target.value })
+                  setFormData({ ...formData, title: e.target.value })
                 }
-                placeholder="Enter subject"
+                placeholder="Enter course title"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-classCode">Class Code *</Label>
+              <Label htmlFor="edit-code">Code *</Label>
               <Input
-                id="edit-classCode"
-                value={formData.classCode}
+                id="edit-code"
+                value={formData.code}
                 onChange={(e) =>
-                  setFormData({ ...formData, classCode: e.target.value })
+                  setFormData({ ...formData, code: e.target.value })
                 }
-                placeholder="Enter class code"
+                placeholder="Enter course code (must be unique)"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-grade">Grade</Label>
-              <Input
-                id="edit-grade"
-                value={formData.grade}
-                onChange={(e) =>
-                  setFormData({ ...formData, grade: e.target.value })
-                }
-                placeholder="Enter grade"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-section">Section</Label>
-              <Input
-                id="edit-section"
-                value={formData.section}
-                onChange={(e) =>
-                  setFormData({ ...formData, section: e.target.value })
-                }
-                placeholder="Enter section"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-schedule">Schedule</Label>
-              <Input
-                id="edit-schedule"
-                value={formData.schedule}
-                onChange={(e) =>
-                  setFormData({ ...formData, schedule: e.target.value })
-                }
-                placeholder="e.g., Mon, Wed, Fri - 09:00 AM"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-room">Room</Label>
-              <Input
-                id="edit-room"
-                value={formData.room}
-                onChange={(e) =>
-                  setFormData({ ...formData, room: e.target.value })
-                }
-                placeholder="Enter room"
-              />
-            </div>
-            <div className="col-span-2 space-y-2">
               <Label htmlFor="edit-description">Description</Label>
-              <textarea
+              <Textarea
                 id="edit-description"
                 value={formData.description}
                 onChange={(e) =>
                   setFormData({ ...formData, description: e.target.value })
                 }
-                placeholder="Enter description"
-                className="w-full min-h-[100px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                placeholder="Enter course description"
+                className="min-h-[100px]"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setIsEditModalOpen(false);
+                resetForm();
+                setSelectedClass(null);
+              }}
+            >
               Cancel
             </Button>
-            <Button onClick={handleEditClass}>Update</Button>
+            <Button 
+              onClick={handleEditClass}
+              disabled={updateClass.isPending}
+            >
+              {updateClass.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                "Update"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -810,34 +756,16 @@ export default function MyClassesPage() {
           {selectedClass && (
             <div className="space-y-6">
               {/* Class Info */}
-              <div className="grid grid-cols-2 gap-4">
+              {selectedClass.description && (
                 <div>
                   <Label className="text-sm text-muted-foreground">
-                    Schedule
+                    Description
                   </Label>
-                  <p className="text-sm font-medium">
-                    {selectedClass.schedule}
+                  <p className="text-sm font-medium mt-1">
+                    {selectedClass.description}
                   </p>
                 </div>
-                <div>
-                  <Label className="text-sm text-muted-foreground">Room</Label>
-                  <p className="text-sm font-medium">{selectedClass.room}</p>
-                </div>
-                <div>
-                  <Label className="text-sm text-muted-foreground">Grade</Label>
-                  <p className="text-sm font-medium">
-                    {selectedClass.grade || "N/A"}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-sm text-muted-foreground">
-                    Section
-                  </Label>
-                  <p className="text-sm font-medium">
-                    {selectedClass.section || "N/A"}
-                  </p>
-                </div>
-              </div>
+              )}
 
               {/* Students Section */}
               <div>
@@ -964,8 +892,19 @@ export default function MyClassesPage() {
             >
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleDeleteClass}>
-              Delete
+            <Button 
+              variant="destructive" 
+              onClick={handleDeleteClass}
+              disabled={deleteClass.isPending}
+            >
+              {deleteClass.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

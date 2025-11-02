@@ -28,15 +28,24 @@ import {
   Download,
   Save,
   Loader2,
+  Edit,
+  Trash2,
+  History,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   useTeacherAttendance,
   useCreateTeacherAttendance,
+  useUpdateTeacherAttendance,
+  useDeleteTeacherAttendance,
   useTeacherClasses,
   type TeacherClass,
 } from "@/lib/hooks/api/teacher";
+import { useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/apiClient";
+import type { ApiSuccess } from "@/lib/api/response";
 import {
   BarChart,
   Bar,
@@ -64,6 +73,7 @@ interface Student {
   semester: number;
   section: string;
   attendanceStatus?: "PRESENT" | "ABSENT" | "LATE";
+  attendanceRecordId?: string; // ID of existing attendance record
 }
 
 interface AttendanceRecord {
@@ -78,9 +88,13 @@ export default function AttendancePage() {
   const { toast } = useToast();
   const { data: session } = useSession();
 
+  const queryClient = useQueryClient();
+  
   // API hooks
   const { data: coursesData, isLoading: coursesLoading } = useTeacherClasses({ limit: 100 });
   const createAttendance = useCreateTeacherAttendance();
+  const updateAttendance = useUpdateTeacherAttendance();
+  const deleteAttendance = useDeleteTeacherAttendance();
   
   const [selectedCourseId, setSelectedCourseId] = useState<string>("");
   const [selectedDate, setSelectedDate] = useState(
@@ -89,6 +103,10 @@ export default function AttendancePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
+  const [showHistory, setShowHistory] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
+  const pageSize = 20;
 
   // Map API courses to Course format
   const courses = useMemo(() => {
@@ -158,19 +176,40 @@ export default function AttendancePage() {
   useEffect(() => {
     if (!selectedCourseId || !selectedDate || students.length === 0 || !attendanceData) return;
 
-    // Filter attendance for the selected date
+    // Filter attendance for the selected date (normalize date comparison)
+    const selectedDateObj = new Date(selectedDate);
+    selectedDateObj.setHours(0, 0, 0, 0);
+    const selectedDateStr = selectedDateObj.toISOString().split("T")[0];
+
     const dateAttendance = attendanceData.items.filter((att) => {
-      const attDate = new Date(att.date).toISOString().split("T")[0];
-      return attDate === selectedDate;
+      const attDate = new Date(att.date);
+      attDate.setHours(0, 0, 0, 0);
+      const attDateStr = attDate.toISOString().split("T")[0];
+      return attDateStr === selectedDateStr;
     });
 
-    // Update student statuses based on existing attendance
+
+    // Map existing attendance records by student ID
+    const attendanceMap = new Map(
+      dateAttendance.map((att) => [att.studentId, att])
+    );
+
+    // Update student statuses based on existing attendance from database
     setStudents((prev) =>
       prev.map((student) => {
-        const existing = dateAttendance.find((att) => att.studentId === student.id);
+        const existing = attendanceMap.get(student.id);
+        if (existing) {
+          return {
+            ...student,
+            attendanceStatus: existing.status as "PRESENT" | "ABSENT" | "LATE",
+            attendanceRecordId: existing.id, // Store record ID for update/delete
+          };
+        }
+        // Reset to default if no existing record found
         return {
           ...student,
-          attendanceStatus: existing ? existing.status : ("PRESENT" as const),
+          attendanceStatus: "PRESENT" as const,
+          attendanceRecordId: undefined,
         };
       })
     );
@@ -193,6 +232,18 @@ export default function AttendancePage() {
     );
   }, [students, searchQuery]);
 
+  // Paginate filtered students
+  const totalPages = Math.ceil(filteredStudents.length / pageSize);
+  const paginatedStudents = filteredStudents.slice(
+    currentPage * pageSize,
+    (currentPage + 1) * pageSize
+  );
+
+  // Reset pagination when search or filters change
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [searchQuery, selectedCourseId, selectedDate]);
+
   const selectedCourse = useMemo(() => {
     return courses.find((c) => c.id === selectedCourseId);
   }, [courses, selectedCourseId]);
@@ -201,6 +252,7 @@ export default function AttendancePage() {
     studentId: string,
     status: "PRESENT" | "ABSENT" | "LATE"
   ) => {
+    // Update local state immediately for UI responsiveness
     setStudents((prev) =>
       prev.map((student) =>
         student.id === studentId
@@ -208,6 +260,24 @@ export default function AttendancePage() {
           : student
       )
     );
+    
+    // Optionally auto-save to database
+    // Uncomment below if you want auto-save on status change
+    /*
+    if (selectedCourseId) {
+      const student = students.find((s) => s.id === studentId);
+      if (student) {
+        createAttendance.mutateAsync({
+          courseId: selectedCourseId,
+          studentId: student.id,
+          status,
+          date: selectedDate,
+        }).catch((error) => {
+          console.error("Error auto-saving attendance:", error);
+        });
+      }
+    }
+    */
   };
 
   const getStatusColor = (status?: string) => {
@@ -259,7 +329,7 @@ export default function AttendancePage() {
     },
   ];
 
-  // Handle save attendance
+  // Handle save attendance (upsert - create or update)
   const handleSaveAttendance = async () => {
     if (!selectedCourseId) {
       toast({
@@ -279,24 +349,282 @@ export default function AttendancePage() {
       return;
     }
 
+    setLoading(true);
     try {
-      // Mark attendance for all students using the mutation hook
-      const promises = students.map((student) =>
-        createAttendance.mutateAsync({
-          courseId: selectedCourseId,
-          studentId: student.id,
-          status: student.attendanceStatus || "PRESENT",
-          date: selectedDate,
+      // Mark attendance for all students - POST endpoint handles upsert
+      // Use direct API call to avoid toast spam from mutation hooks
+      const promises = students.map(async (student) => {
+        const status = student.attendanceStatus || "PRESENT";
+        
+        try {
+          // Call API directly to have better control over the response
+          const response = await apiClient<ApiSuccess<any>>("/api/teacher/attendance", {
+            method: "POST",
+            body: {
+              courseId: selectedCourseId,
+              studentId: student.id,
+              status,
+              date: selectedDate,
+            },
+          });
+          
+          // apiClient returns the full response which is ApiSuccess<Attendance>
+          // So response.data contains the attendance object
+          return response.data;
+        } catch (error) {
+          console.error(`Failed to save attendance for student ${student.id}:`, error);
+          throw error;
+        }
+      });
+
+      const results = await Promise.allSettled(promises);
+      
+      // Check for errors
+      const errors = results.filter((r) => r.status === "rejected");
+      if (errors.length > 0) {
+        console.error("Some attendance records failed to save:", errors);
+        errors.forEach((error) => {
+          if (error.status === "rejected") {
+            console.error("Error details:", error.reason);
+          }
+        });
+      }
+      
+      // Update local state with returned attendance record IDs
+      const successful = results
+        .filter((r) => r.status === "fulfilled")
+        .map((r) => {
+          const result = (r as PromiseFulfilledResult<any>).value;
+          // The API returns { success: true, data: attendanceObject }
+          // apiClient unwraps it, so result is the attendance object directly
+          return result;
+        })
+        .filter(Boolean); // Filter out any null/undefined values
+
+      // Invalidate and refetch attendance data immediately
+      await queryClient.invalidateQueries({ queryKey: ["teacher", "attendance"] });
+      
+      // Refetch attendance to get fresh data from database
+      const freshAttendanceResponse = await refetchAttendance();
+      const freshAttendanceData = freshAttendanceResponse.data;
+      
+      // Update students list with fresh data from database to ensure sync
+      if (freshAttendanceData && freshAttendanceData.items) {
+        const selectedDateObj = new Date(selectedDate);
+        selectedDateObj.setHours(0, 0, 0, 0);
+        const selectedDateStr = selectedDateObj.toISOString().split("T")[0];
+        
+        const dateAttendance = freshAttendanceData.items.filter((att: any) => {
+          const attDate = new Date(att.date);
+          attDate.setHours(0, 0, 0, 0);
+          const attDateStr = attDate.toISOString().split("T")[0];
+          return attDateStr === selectedDateStr;
+        });
+        
+        const attendanceMap = new Map(
+          dateAttendance.map((att: any) => [att.studentId, att])
+        );
+        
+        // Update students with fresh data from database - this ensures UI is synced
+        setStudents((prev) =>
+          prev.map((student) => {
+            const existing = attendanceMap.get(student.id);
+            if (existing) {
+              return {
+                ...student,
+                attendanceStatus: existing.status as "PRESENT" | "ABSENT" | "LATE",
+                attendanceRecordId: existing.id,
+              };
+            }
+            // If no existing record, reset to default
+            return {
+              ...student,
+              attendanceStatus: "PRESENT" as const,
+              attendanceRecordId: undefined,
+            };
+          })
+        );
+      }
+      
+      if (errors.length > 0) {
+        toast({
+          variant: "destructive",
+          title: "Partial Success",
+          description: `Saved ${successful.length} of ${students.length} students. ${errors.length} failed.`,
+        });
+      } else {
+        toast({
+          title: "Success",
+          description: `Attendance saved for ${successful.length} student(s)`,
+        });
+      }
+    } catch (error) {
+      console.error("Error saving attendance:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to save attendance. Please try again.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle bulk actions
+  const handleBulkAction = async (status: "PRESENT" | "ABSENT" | "LATE") => {
+    if (selectedStudents.size === 0) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please select at least one student",
+      });
+      return;
+    }
+
+    if (!selectedCourseId) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please select a course",
+      });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const selectedCount = selectedStudents.size;
+      const promises = Array.from(selectedStudents).map(async (studentId) => {
+        const student = students.find((s) => s.id === studentId);
+        if (!student) return null;
+
+        // Always use POST endpoint which handles upsert - call API directly
+        const response = await apiClient<ApiSuccess<any>>("/api/teacher/attendance", {
+          method: "POST",
+          body: {
+            courseId: selectedCourseId,
+            studentId: student.id,
+            status,
+            date: selectedDate,
+          },
+        });
+        return response.data;
+      });
+
+      const results = await Promise.allSettled(promises.filter(Boolean));
+      
+      // Check for errors
+      const errors = results.filter((r) => r.status === "rejected");
+      const successful = results
+        .filter((r) => r.status === "fulfilled")
+        .map((r) => (r as PromiseFulfilledResult<any>).value);
+
+      // Update local state with returned data
+      setStudents((prev) =>
+        prev.map((student) => {
+          if (selectedStudents.has(student.id)) {
+            const result = successful.find(
+              (r) => r && r.studentId === student.id
+            );
+            if (result) {
+              return {
+                ...student,
+                attendanceStatus: status,
+                attendanceRecordId: result.id,
+              };
+            }
+            return {
+              ...student,
+              attendanceStatus: status,
+            };
+          }
+          return student;
         })
       );
 
-      await Promise.allSettled(promises);
+      // Clear selection
+      setSelectedStudents(new Set());
       
-      // Refetch attendance data
+      // Refetch attendance data to sync with database
+      await queryClient.invalidateQueries({ queryKey: ["teacher", "attendance"] });
       await refetchAttendance();
+      
+      toast({
+        title: "Success",
+        description: `Marked ${successful.length} student(s) as ${status}`,
+      });
     } catch (error) {
-      // Error handling is done by the mutation hook
-      console.error("Error saving attendance:", error);
+      console.error("Error in bulk action:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update attendance. Please try again.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle delete attendance record
+  const handleDeleteAttendance = async (studentId: string) => {
+    const student = students.find((s) => s.id === studentId);
+    if (!student || !student.attendanceRecordId) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "No attendance record found to delete",
+      });
+      return;
+    }
+
+    try {
+      await deleteAttendance.mutateAsync(student.attendanceRecordId);
+      
+      // Update local state - remove record ID and reset status
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.id === studentId
+            ? { ...s, attendanceStatus: "PRESENT" as const, attendanceRecordId: undefined }
+            : s
+        )
+      );
+      
+      // Refetch attendance data to sync with database
+      await queryClient.invalidateQueries({ queryKey: ["teacher", "attendance"] });
+      await refetchAttendance();
+      
+      toast({
+        title: "Success",
+        description: "Attendance record deleted successfully",
+      });
+    } catch (error) {
+      console.error("Error deleting attendance:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to delete attendance. Please try again.",
+      });
+    }
+  };
+
+  // Toggle student selection
+  const toggleStudentSelection = (studentId: string) => {
+    setSelectedStudents((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(studentId)) {
+        newSet.delete(studentId);
+      } else {
+        newSet.add(studentId);
+      }
+      return newSet;
+    });
+  };
+
+  // Select all students
+  const selectAllStudents = () => {
+    if (selectedStudents.size === filteredStudents.length) {
+      setSelectedStudents(new Set());
+    } else {
+      setSelectedStudents(new Set(filteredStudents.map((s) => s.id)));
     }
   };
 
@@ -330,12 +658,16 @@ export default function AttendancePage() {
             </p>
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowHistory(!showHistory)}>
+              <History className="h-4 w-4 mr-2" />
+              {showHistory ? "Hide History" : "Show History"}
+            </Button>
             <Button variant="outline" onClick={handleExport}>
               <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
-            <Button onClick={handleSaveAttendance} disabled={createAttendance.isPending || !selectedCourseId || students.length === 0}>
-              {createAttendance.isPending ? (
+            <Button onClick={handleSaveAttendance} disabled={loading || !selectedCourseId || students.length === 0}>
+              {loading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Saving...
@@ -540,6 +872,61 @@ export default function AttendancePage() {
         </CardContent>
       </Card>
 
+      {/* Bulk Actions */}
+      {selectedStudents.size > 0 && (
+        <Card
+          className={cn(
+            glassStyles.card,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                {selectedStudents.size} student(s) selected
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleBulkAction("PRESENT")}
+                  disabled={loading}
+                >
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Mark All Present
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleBulkAction("ABSENT")}
+                  disabled={loading}
+                >
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Mark All Absent
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleBulkAction("LATE")}
+                  disabled={loading}
+                >
+                  <Clock className="h-4 w-4 mr-2" />
+                  Mark All Late
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedStudents(new Set())}
+                >
+                  Clear Selection
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Students Attendance Table */}
       <Card
         className={cn(
@@ -550,9 +937,30 @@ export default function AttendancePage() {
         )}
       >
         <CardHeader>
-          <CardTitle className="text-lg font-semibold text-foreground">
-            Student Attendance - {new Date(selectedDate).toLocaleDateString()}
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg font-semibold text-foreground">
+              Student Attendance - {new Date(selectedDate).toLocaleDateString()}
+            </CardTitle>
+            {filteredStudents.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={selectAllStudents}
+              >
+                {selectedStudents.size === filteredStudents.length ? (
+                  <>
+                    <CheckSquare className="h-4 w-4 mr-2" />
+                    Deselect All
+                  </>
+                ) : (
+                  <>
+                    <Square className="h-4 w-4 mr-2" />
+                    Select All
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -567,33 +975,53 @@ export default function AttendancePage() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border/50">
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                      Student
-                    </th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                      Student ID
-                    </th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                      Email
-                    </th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                      Status
-                    </th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredStudents.map((student) => (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border/50">
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground w-12">
+                        <input
+                          type="checkbox"
+                          checked={selectedStudents.size === filteredStudents.length && filteredStudents.length > 0}
+                          onChange={selectAllStudents}
+                          className="rounded border-border"
+                        />
+                      </th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                        Student
+                      </th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                        Student ID
+                      </th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                        Email
+                      </th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                        Status
+                      </th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedStudents.map((student) => (
                     <tr
                       key={student.id}
-                      className="border-b border-border/30 hover:bg-muted/30 transition-colors duration-200"
+                      className={cn(
+                        "border-b border-border/30 hover:bg-muted/30 transition-colors duration-200",
+                        selectedStudents.has(student.id) && "bg-primary/5"
+                      )}
                     >
+                      <td className="py-3 px-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedStudents.has(student.id)}
+                          onChange={() => toggleStudentSelection(student.id)}
+                          className="rounded border-border"
+                        />
+                      </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
                           <div className="p-2 rounded-lg bg-primary/10">
@@ -659,6 +1087,17 @@ export default function AttendancePage() {
                           >
                             Late
                           </Button>
+                          {student.attendanceRecordId && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs text-destructive hover:text-destructive"
+                              onClick={() => handleDeleteAttendance(student.id)}
+                              disabled={deleteAttendance.isPending}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -666,9 +1105,162 @@ export default function AttendancePage() {
                 </tbody>
               </table>
             </div>
+            
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="mt-4 flex items-center justify-between px-4 pb-4">
+                <p className="text-sm text-muted-foreground">
+                  Showing {currentPage * pageSize + 1} to {Math.min((currentPage + 1) * pageSize, filteredStudents.length)} of {filteredStudents.length} students
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+                    disabled={currentPage === 0}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm text-muted-foreground px-2">
+                    Page {currentPage + 1} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
+                    disabled={(currentPage + 1) * pageSize >= filteredStudents.length}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>
+
+      {/* Attendance History */}
+      {showHistory && attendanceData && (
+        <Card
+          className={cn(
+            glassStyles.card,
+            glassStyles.cardHover,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold text-foreground">
+              Attendance History - {selectedCourse?.title || "All Courses"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {attendanceData.items.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-muted-foreground">No attendance records found</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border/50">
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                        Date
+                      </th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                        Student
+                      </th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                        Course
+                      </th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                        Status
+                      </th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attendanceData.items.slice(0, 50).map((record) => (
+                      <tr
+                        key={record.id}
+                        className="border-b border-border/30 hover:bg-muted/30 transition-colors duration-200"
+                      >
+                        <td className="py-3 px-4 text-sm">
+                          {new Date(record.date).toLocaleDateString()}
+                        </td>
+                        <td className="py-3 px-4 text-sm font-medium">
+                          {record.student?.user?.name || "Unknown"}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-muted-foreground">
+                          {record.course?.title || "Unknown"}
+                        </td>
+                        <td className="py-3 px-4">
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "text-xs flex items-center gap-1 w-fit",
+                              getStatusColor(record.status)
+                            )}
+                          >
+                            {getStatusIcon(record.status)}
+                            {record.status}
+                          </Badge>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                const newStatus = record.status === "PRESENT" ? "ABSENT" : "PRESENT";
+                                try {
+                                  await updateAttendance.mutateAsync({
+                                    id: record.id,
+                                    status: newStatus,
+                                  });
+                                  await queryClient.invalidateQueries({ queryKey: ["teacher", "attendance"] });
+                                  await refetchAttendance();
+                                } catch (error) {
+                                  console.error("Error updating attendance:", error);
+                                }
+                              }}
+                              disabled={updateAttendance.isPending}
+                            >
+                              <Edit className="h-3 w-3 mr-1" />
+                              Edit
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={async () => {
+                                try {
+                                  await deleteAttendance.mutateAsync(record.id);
+                                  await queryClient.invalidateQueries({ queryKey: ["teacher", "attendance"] });
+                                  await refetchAttendance();
+                                } catch (error) {
+                                  console.error("Error deleting attendance:", error);
+                                }
+                              }}
+                              disabled={deleteAttendance.isPending}
+                            >
+                              <Trash2 className="h-3 w-3 mr-1" />
+                              Delete
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

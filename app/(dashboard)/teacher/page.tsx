@@ -98,6 +98,26 @@ export default function TeacherDashboard() {
       icon: CheckCircle,
     },
   ];
+
+  // Format student performance data for bar chart (ensure it matches CourseEngagementData format)
+  const formattedStudentPerformance = (studentPerformance || []).map((item) => ({
+    course: item.course,
+    enrollments: item.enrollments || 0,
+    completions: item.completions || 0,
+  }));
+
+  // Ensure attendance trend has data (fallback to empty array with default values if needed)
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const formattedAttendanceTrend = (attendanceTrend || []).length > 0 
+    ? attendanceTrend 
+    : Array.from({ length: 6 }, (_, i) => {
+        const date = new Date();
+        date.setMonth(date.getMonth() - (5 - i));
+        return {
+          month: monthNames[date.getMonth()],
+          users: 0,
+        };
+      });
   return (
     <div className="space-y-6">
       {/* Welcome Section */}
@@ -133,12 +153,12 @@ export default function TeacherDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ChartCard
           title="Attendance Trend"
-          data={attendanceTrend}
+          data={formattedAttendanceTrend}
           type="line"
         />
         <ChartCard
           title="Student Performance"
-          data={studentPerformance}
+          data={formattedStudentPerformance}
           type="bar"
         />
       </div>

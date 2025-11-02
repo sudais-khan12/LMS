@@ -237,25 +237,23 @@ export function useCreateTeacherAttendance() {
       date: string;
       status: "PRESENT" | "ABSENT" | "LATE";
     }) => {
+      console.log("Creating attendance:", data);
       const response = await apiClient<ApiSuccess<TeacherAttendance>>("/api/teacher/attendance", {
         method: "POST",
         body: data,
       });
+      console.log("Attendance API response:", response);
+      // Return the data directly (unwrap from apiSuccess)
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["teacher", "attendance"] });
-      toast({
-        title: "Success",
-        description: "Attendance marked successfully",
-      });
+    onSuccess: (data) => {
+      // Don't show individual toasts for batch operations
+      // The parent component will handle success messaging
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to mark attendance",
-        variant: "destructive",
-      });
+      console.error("Attendance mutation error:", error);
+      // Don't show toast here if we're doing batch operations
+      // The parent component will handle error messaging
     },
   });
 }
@@ -529,6 +527,86 @@ export function useTeacherStudents(params?: {
         `/api/teacher/students?${searchParams.toString()}`
       );
       return response.data;
+    },
+  });
+}
+
+export function useMoveTeacherStudent() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (data: {
+      studentId: string;
+      fromCourseId: string;
+      toCourseId: string;
+    }) => {
+      const response = await apiClient<ApiSuccess<{
+        message: string;
+        movedAttendanceRecords: number;
+      }>>(
+        `/api/teacher/students/${data.studentId}/move`,
+        {
+          method: 'POST',
+          body: {
+            fromCourseId: data.fromCourseId,
+            toCourseId: data.toCourseId,
+          },
+        }
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['teacher', 'students'] });
+      toast({
+        title: 'Success',
+        description: 'Student moved to new course successfully',
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to move student',
+        variant: 'destructive',
+      });
+    },
+  });
+}
+
+export function useRemoveTeacherStudentFromCourse() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (data: {
+      studentId: string;
+      courseId: string;
+    }) => {
+      const response = await apiClient<ApiSuccess<{
+        message: string;
+        deletedAttendance: number;
+        deletedSubmissions: number;
+      }>>(
+        `/api/teacher/students/${data.studentId}/course/${data.courseId}`,
+        {
+          method: 'DELETE',
+        }
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['teacher', 'students'] });
+      toast({
+        title: 'Success',
+        description: 'Student removed from course successfully',
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to remove student from course',
+        variant: 'destructive',
+      });
     },
   });
 }

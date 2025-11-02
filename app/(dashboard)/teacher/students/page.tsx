@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,8 @@ import {
 import {
   useTeacherStudents,
   useTeacherClasses,
+  useMoveTeacherStudent,
+  useRemoveTeacherStudentFromCourse,
   type TeacherStudent as APITeacherStudent,
 } from "@/lib/hooks/api/teacher";
 import { Loader2 } from "lucide-react";
@@ -91,6 +93,10 @@ export default function TeacherStudentsPage() {
     refetch: refetchStudents,
   } = useTeacherStudents({ limit: 1000 });
   const { data: coursesData } = useTeacherClasses({ limit: 100 });
+  
+  // Mutation hooks
+  const moveStudent = useMoveTeacherStudent();
+  const removeStudent = useRemoveTeacherStudentFromCourse();
 
   const apiStudents = studentsData?.items || [];
   const courses = coursesData?.items || [];
@@ -108,6 +114,8 @@ export default function TeacherStudentsPage() {
     null
   );
   const [newClassId, setNewClassId] = useState("");
+  const [currentPage, setCurrentPage] = useState(0);
+  const pageSize = 20;
 
   // Map API students to UI format
   const students = useMemo(() => {
@@ -182,6 +190,18 @@ export default function TeacherStudentsPage() {
         return 0;
       });
   }, [students, searchQuery, classFilter, performanceFilter, sortBy]);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredAndSortedStudents.length / pageSize);
+  const paginatedStudents = filteredAndSortedStudents.slice(
+    currentPage * pageSize,
+    (currentPage + 1) * pageSize
+  );
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [searchQuery, classFilter, performanceFilter]);
 
   // Chart data (using unique students only)
   const uniqueStudents = useMemo(() => {
@@ -284,27 +304,45 @@ export default function TeacherStudentsPage() {
     setIsDeleteModalOpen(true);
   };
 
-  const handleMoveStudent = () => {
-    if (!selectedStudent || !newClassId) return;
+  const handleMoveStudent = async () => {
+    if (!selectedStudent || !newClassId) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please select a course to move the student to",
+      });
+      return;
+    }
 
-    toast({
-      title: "Info",
-      description: "Moving students between classes is managed by administrators. Please contact an admin for assistance.",
-    });
-    setIsMoveModalOpen(false);
-    setSelectedStudent(null);
-    setNewClassId("");
+    try {
+      await moveStudent.mutateAsync({
+        studentId: selectedStudent._apiId,
+        fromCourseId: selectedStudent.classId,
+        toCourseId: newClassId,
+      });
+      setIsMoveModalOpen(false);
+      setSelectedStudent(null);
+      setNewClassId("");
+      await refetchStudents();
+    } catch (error) {
+      // Error handled by mutation hook
+    }
   };
 
-  const handleRemoveStudent = () => {
+  const handleRemoveStudent = async () => {
     if (!selectedStudent) return;
 
-    toast({
-      title: "Info",
-      description: "Removing students from classes is managed by administrators. Please contact an admin for assistance.",
-    });
-    setIsDeleteModalOpen(false);
-    setSelectedStudent(null);
+    try {
+      await removeStudent.mutateAsync({
+        studentId: selectedStudent._apiId,
+        courseId: selectedStudent.classId,
+      });
+      setIsDeleteModalOpen(false);
+      setSelectedStudent(null);
+      await refetchStudents();
+    } catch (error) {
+      // Error handled by mutation hook
+    }
   };
 
   return (
@@ -538,7 +576,7 @@ export default function TeacherStudentsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredAndSortedStudents.map((student) => (
+                  {paginatedStudents.map((student) => (
                   <tr
                     key={student.id}
                     className="border-b border-border/30 hover:bg-muted/30 transition-colors duration-200"
@@ -641,6 +679,61 @@ export default function TeacherStudentsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-4 border-t border-border/50">
+              <div className="text-sm text-muted-foreground">
+                Showing {currentPage * pageSize + 1} to{" "}
+                {Math.min((currentPage + 1) * pageSize, filteredAndSortedStudents.length)} of{" "}
+                {filteredAndSortedStudents.length} students
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((prev) => Math.max(0, prev - 1))}
+                  disabled={currentPage === 0}
+                >
+                  Previous
+                </Button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum: number;
+                    if (totalPages <= 5) {
+                      pageNum = i;
+                    } else if (currentPage < 3) {
+                      pageNum = i;
+                    } else if (currentPage > totalPages - 4) {
+                      pageNum = totalPages - 5 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                      >
+                        {pageNum + 1}
+                      </Button>
+                    );
+                  })}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setCurrentPage((prev) => Math.min(totalPages - 1, prev + 1))
+                  }
+                  disabled={currentPage === totalPages - 1}
+                >
+                  Next
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
@@ -885,7 +978,16 @@ export default function TeacherStudentsPage() {
             <Button variant="outline" onClick={() => setIsMoveModalOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleMoveStudent}>Move Student</Button>
+            <Button onClick={handleMoveStudent} disabled={moveStudent.isPending}>
+              {moveStudent.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Moving...
+                </>
+              ) : (
+                "Move Student"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -907,8 +1009,19 @@ export default function TeacherStudentsPage() {
             >
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleRemoveStudent}>
-              Remove Student
+            <Button
+              variant="destructive"
+              onClick={handleRemoveStudent}
+              disabled={removeStudent.isPending}
+            >
+              {removeStudent.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Removing...
+                </>
+              ) : (
+                "Remove Student"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

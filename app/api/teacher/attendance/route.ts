@@ -86,7 +86,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(apiError('Forbidden: Course not found or not yours'), { status: 403 });
     }
 
-    const date = parsed.data.date ? new Date(parsed.data.date) : new Date();
+    // Parse date correctly - ensure it's set to start of day for consistency
+    let date: Date;
+    if (parsed.data.date) {
+      date = new Date(parsed.data.date);
+      date.setHours(0, 0, 0, 0); // Set to start of day
+    } else {
+      date = new Date();
+      date.setHours(0, 0, 0, 0);
+    }
 
     // Upsert attendance
     const updated = await prisma.attendance.upsert({
