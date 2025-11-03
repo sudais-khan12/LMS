@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Bell, Menu, User, Settings, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import NotificationDropdown from "@/components/notifications/NotificationDropdown";
 
 interface DashboardNavbarProps {
   pageTitle: string;
@@ -37,8 +39,6 @@ export default function DashboardNavbar({
   },
   searchPlaceholder = "Search...",
 }: DashboardNavbarProps) {
-  const [notifications] = useState(3); // Mock notification count
-
   return (
     <header
       className={cn(
@@ -72,18 +72,7 @@ export default function DashboardNavbar({
         </div>
 
         {/* Notifications */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="relative text-gray-700 hover:bg-white/50"
-        >
-          <Bell className="h-5 w-5" />
-          {notifications > 0 && (
-            <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
-              {notifications}
-            </span>
-          )}
-        </Button>
+        <NotificationDropdown />
 
         {/* User Menu */}
         <DropdownMenu>
@@ -126,7 +115,10 @@ export default function DashboardNavbar({
               <span>Settings</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="cursor-pointer text-red-600">
+            <DropdownMenuItem 
+              className="cursor-pointer text-red-600"
+              onClick={() => signOut({ callbackUrl: "/login", redirect: true })}
+            >
               <LogOut className="mr-2 h-4 w-4" />
               <span>Log out</span>
             </DropdownMenuItem>

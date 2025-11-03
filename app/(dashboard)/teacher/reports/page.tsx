@@ -7,15 +7,12 @@ import ChartCard from "@/components/ui/ChartCard";
 import ReportFiltersComponent from "@/components/admin/reports/ReportFilters";
 import ExportButton from "@/components/admin/reports/ExportButton";
 import { useToast } from "@/hooks/use-toast";
-import { usePagination } from "@/lib/hooks/usePagination";
+import { glassStyles, animationClasses } from "@/config/teacher-constants";
 import {
-  attendanceTrendData,
-  studentPerformanceData,
-  detailedClassesData,
-  teacherStudentsData,
-  glassStyles,
-  animationClasses,
-} from "@/config/teacher-constants";
+  useTeacherReports,
+  useTeacherClasses,
+  useTeacherStudents,
+} from "@/lib/hooks/api/teacher";
 import { ReportFilters, ExportOptions } from "@/types/report";
 import { cn } from "@/lib/utils";
 import {
@@ -39,6 +36,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+// Local UI type for student display
+interface StudentUI {
+  id: string;
+  name: string;
+  studentId: string;
+  classId: string;
+  className: string;
+  attendance: number;
+  progress: number;
+  grade: string;
+}
 
 export default function ReportsPage() {
   const { toast } = useToast();
@@ -53,15 +69,45 @@ export default function ReportsPage() {
   const [currentTab, setCurrentTab] = useState<"attendance" | "performance">(
     "attendance"
   );
+  const [currentPage, setCurrentPage] = useState(0);
+  const pageSize = 20;
 
-  // Teacher's classes and students
-  const teacherClasses = detailedClassesData;
-  const teacherStudents = teacherStudentsData;
+  // API hooks
+  const { data: reportsData, isLoading: reportsLoading } = useTeacherReports();
+  const { data: coursesData } = useTeacherClasses({ limit: 100 });
+  const { data: studentsData } = useTeacherStudents({ limit: 1000 });
+
+  const courses = coursesData?.items || [];
+  const reportsStudents = reportsData?.students || [];
+  const apiStudents = studentsData?.items || [];
+
+  // Map API students (which have per-course data) to UI format
+  // Use students API which has course-specific attendance and grades
+  const students = useMemo(() => {
+    return apiStudents.flatMap((student) => {
+      // Create one entry per course for the student
+      return student.courses.map(
+        (course) =>
+          ({
+            id: `${student.id}-${course.id}`,
+            name: student.name,
+            studentId: student.studentId,
+            classId: course.id,
+            className: course.title,
+            attendance: student.attendance,
+            progress: student.progress,
+            grade: student.grade,
+            gpa: student.latestGpa,
+            coursesEnrolled: student.courses.length,
+          } as StudentUI)
+      );
+    });
+  }, [apiStudents]);
 
   // Filter data based on selected filters
   const filteredData = useMemo(() => {
-    let attendanceData = [...teacherStudents];
-    let performanceData = [...teacherStudents];
+    let attendanceData = [...students];
+    let performanceData = [...students];
 
     // Filter by search
     if (filters.search) {
@@ -81,20 +127,35 @@ export default function ReportsPage() {
     // Filter by selected class
     if (selectedClass !== "all") {
       attendanceData = attendanceData.filter(
-        (s) => s.classId === Number(selectedClass)
+        (s) => s.classId === selectedClass
       );
       performanceData = performanceData.filter(
-        (s) => s.classId === Number(selectedClass)
+        (s) => s.classId === selectedClass
       );
-    }
-
-    // Filter by time range (mock)
-    if (filters.timeRange !== "all") {
-      // In real app, would filter by actual attendance records
     }
 
     return { attendanceData, performanceData };
-  }, [filters, selectedClass]);
+  }, [filters, selectedClass, students]);
+
+  // Pagination
+  const totalPages = Math.ceil(
+    (currentTab === "attendance"
+      ? filteredData.attendanceData.length
+      : filteredData.performanceData.length) / pageSize
+  );
+
+  const paginatedData = useMemo(() => {
+    const data =
+      currentTab === "attendance"
+        ? filteredData.attendanceData
+        : filteredData.performanceData;
+    return data.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+  }, [currentTab, filteredData, currentPage, pageSize]);
+
+  // Reset to first page when filters or tab change
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [filters, selectedClass, currentTab]);
 
   // Prepare chart data
   const attendanceChartData = [
@@ -129,20 +190,23 @@ export default function ReportsPage() {
   const performanceChartData = [
     {
       course: "A",
-      enrollments: filteredData.performanceData.filter((s) => s.grade.startsWith("A"))
-        .length,
+      enrollments: filteredData.performanceData.filter((s) =>
+        s.grade.startsWith("A")
+      ).length,
       completions: 0,
     },
     {
       course: "B",
-      enrollments: filteredData.performanceData.filter((s) => s.grade.startsWith("B"))
-        .length,
+      enrollments: filteredData.performanceData.filter((s) =>
+        s.grade.startsWith("B")
+      ).length,
       completions: 0,
     },
     {
       course: "C",
-      enrollments: filteredData.performanceData.filter((s) => s.grade.startsWith("C"))
-        .length,
+      enrollments: filteredData.performanceData.filter((s) =>
+        s.grade.startsWith("C")
+      ).length,
       completions: 0,
     },
     {
@@ -157,18 +221,69 @@ export default function ReportsPage() {
     },
   ];
 
-  const classPerformanceData = teacherClasses.map((cls) => ({
-    course: cls.subject,
-    enrollments: cls.totalStudents,
-    completions: cls.students.length,
-  }));
+  // Get unique students for charts
+  const uniqueStudents = useMemo(() => {
+    const seen = new Set<string>();
+    return students.filter((s) => {
+      const key = s.name + s.studentId;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [students]);
 
-  const monthlyStats = [
-    { month: "Jan", users: 85 },
-    { month: "Feb", users: 87 },
-    { month: "Mar", users: 89 },
-    { month: "Apr", users: 88 },
-  ];
+  const classPerformanceData = useMemo(() => {
+    return courses.map((course) => {
+      const courseStudents = students.filter((s) => s.classId === course.id);
+      const uniqueCourseStudents = [
+        ...new Set(courseStudents.map((s) => s.studentId)),
+      ];
+      return {
+        course: course.title,
+        enrollments: uniqueCourseStudents.length,
+        completions: courseStudents.filter((s) => s.progress > 0).length,
+      };
+    });
+  }, [courses, students]);
+
+  // Monthly stats based on unique students (last 6 months)
+  // In a full implementation, this would query actual submissions by month from the API
+  const monthlyStats = useMemo(() => {
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    const now = new Date();
+    const uniqueStudentCount = uniqueStudents.length;
+
+    // Generate monthly stats based on unique students count
+    // This is an approximation - in a full implementation, you'd query actual submissions by month
+    return Array.from({ length: 6 }, (_, i) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+      const monthName = months[date.getMonth()];
+
+      // Estimate submissions based on unique students (70-85% typically submit)
+      // Use a deterministic calculation instead of random for consistent results
+      const baseRate = 0.75;
+      const variation = (i % 3) * 0.05; // Small variation between months (0%, 5%, 10% pattern)
+      const users = Math.max(
+        0,
+        Math.floor(uniqueStudentCount * (baseRate + variation))
+      );
+
+      return { month: monthName, users };
+    });
+  }, [uniqueStudents.length]);
 
   // Summary statistics
   const summaryStats = useMemo(() => {
@@ -293,18 +408,19 @@ export default function ReportsPage() {
         <CardContent className="p-4">
           <div className="flex items-center gap-4">
             <label className="text-sm font-medium">Filter by Class:</label>
-            <select
-              value={selectedClass}
-              onChange={(e) => setSelectedClass(e.target.value)}
-              className="flex-1 p-2 border border-border rounded-lg bg-background text-foreground"
-            >
-              <option value="all">All Classes</option>
-              {teacherClasses.map((cls) => (
-                <option key={cls.id} value={cls.id.toString()}>
-                  {cls.subject} - {cls.classCode}
-                </option>
-              ))}
-            </select>
+            <Select value={selectedClass} onValueChange={setSelectedClass}>
+              <SelectTrigger className="flex-1">
+                <SelectValue placeholder="All Classes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Classes</SelectItem>
+                {courses.map((course) => (
+                  <SelectItem key={course.id} value={course.id}>
+                    {course.title} - {course.code}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
@@ -379,7 +495,7 @@ export default function ReportsPage() {
                   Classes
                 </p>
                 <p className="text-2xl font-bold text-foreground">
-                  {teacherClasses.length}
+                  {courses.length}
                 </p>
               </div>
             </div>
@@ -457,83 +573,172 @@ export default function ReportsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Student ID</TableHead>
-                  <TableHead>Class</TableHead>
-                  {currentTab === "attendance" ? (
-                    <>
-                      <TableHead>Attendance %</TableHead>
-                      <TableHead>Status</TableHead>
-                    </>
-                  ) : (
-                    <>
-                      <TableHead>Progress %</TableHead>
-                      <TableHead>Grade</TableHead>
-                    </>
-                  )}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(currentTab === "attendance"
-                  ? filteredData.attendanceData
-                  : filteredData.performanceData
-                ).map((student) => (
-                  <TableRow key={student.id}>
-                    <TableCell className="font-medium">
-                      {student.name}
-                    </TableCell>
-                    <TableCell>{student.studentId}</TableCell>
-                    <TableCell>{student.className}</TableCell>
-                    {currentTab === "attendance" ? (
-                      <>
-                        <TableCell>{student.attendance}%</TableCell>
-                        <TableCell>
-                          <span
-                            className={cn(
-                              "px-2 py-1 rounded text-xs",
-                              student.attendance >= 90
-                                ? "bg-green-100 text-green-800"
-                                : student.attendance >= 75
-                                ? "bg-yellow-100 text-yellow-800"
-                                : "bg-red-100 text-red-800"
-                            )}
-                          >
-                            {student.attendance >= 90
-                              ? "Excellent"
-                              : student.attendance >= 75
-                              ? "Good"
-                              : "Needs Improvement"}
-                          </span>
+          {reportsLoading ? (
+            <div className="text-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+              <p className="text-muted-foreground mt-4">Loading reports...</p>
+            </div>
+          ) : paginatedData.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground">
+                {students.length === 0
+                  ? "No students enrolled in your courses yet"
+                  : currentPage > 0
+                  ? "No more results on this page"
+                  : "No data found matching your filters"}
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Student ID</TableHead>
+                      <TableHead>Class</TableHead>
+                      {currentTab === "attendance" ? (
+                        <>
+                          <TableHead>Attendance %</TableHead>
+                          <TableHead>Status</TableHead>
+                        </>
+                      ) : (
+                        <>
+                          <TableHead>Progress %</TableHead>
+                          <TableHead>Grade</TableHead>
+                        </>
+                      )}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedData.map((student) => (
+                      <TableRow key={student.id}>
+                        <TableCell className="font-medium">
+                          {student.name}
                         </TableCell>
-                      </>
-                    ) : (
-                      <>
-                        <TableCell>{student.progress}%</TableCell>
-                        <TableCell>
-                          <span
-                            className={cn(
-                              "px-2 py-1 rounded text-xs font-medium",
-                              student.grade.startsWith("A")
-                                ? "bg-green-100 text-green-800"
-                                : student.grade.startsWith("B")
-                                ? "bg-blue-100 text-blue-800"
-                                : "bg-yellow-100 text-yellow-800"
-                            )}
-                          >
-                            {student.grade}
-                          </span>
-                        </TableCell>
-                      </>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                        <TableCell>{student.studentId}</TableCell>
+                        <TableCell>{student.className}</TableCell>
+                        {currentTab === "attendance" ? (
+                          <>
+                            <TableCell>{student.attendance}%</TableCell>
+                            <TableCell>
+                              <span
+                                className={cn(
+                                  "px-2 py-1 rounded text-xs",
+                                  student.attendance >= 90
+                                    ? "bg-green-100 text-green-800"
+                                    : student.attendance >= 75
+                                    ? "bg-yellow-100 text-yellow-800"
+                                    : "bg-red-100 text-red-800"
+                                )}
+                              >
+                                {student.attendance >= 90
+                                  ? "Excellent"
+                                  : student.attendance >= 75
+                                  ? "Good"
+                                  : "Needs Improvement"}
+                              </span>
+                            </TableCell>
+                          </>
+                        ) : (
+                          <>
+                            <TableCell>{student.progress}%</TableCell>
+                            <TableCell>
+                              <span
+                                className={cn(
+                                  "px-2 py-1 rounded text-xs font-medium",
+                                  student.grade.startsWith("A")
+                                    ? "bg-green-100 text-green-800"
+                                    : student.grade.startsWith("B")
+                                    ? "bg-blue-100 text-blue-800"
+                                    : "bg-yellow-100 text-yellow-800"
+                                )}
+                              >
+                                {student.grade}
+                              </span>
+                            </TableCell>
+                          </>
+                        )}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-4 border-t border-border/50">
+                  <div className="text-sm text-muted-foreground">
+                    Showing {currentPage * pageSize + 1} to{" "}
+                    {Math.min(
+                      (currentPage + 1) * pageSize,
+                      currentTab === "attendance"
+                        ? filteredData.attendanceData.length
+                        : filteredData.performanceData.length
+                    )}{" "}
+                    of{" "}
+                    {currentTab === "attendance"
+                      ? filteredData.attendanceData.length
+                      : filteredData.performanceData.length}{" "}
+                    students
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setCurrentPage((prev) => Math.max(0, prev - 1))
+                      }
+                      disabled={currentPage === 0}
+                    >
+                      Previous
+                    </Button>
+                    <div className="flex items-center gap-1">
+                      {Array.from(
+                        { length: Math.min(5, totalPages) },
+                        (_, i) => {
+                          let pageNum: number;
+                          if (totalPages <= 5) {
+                            pageNum = i;
+                          } else if (currentPage < 3) {
+                            pageNum = i;
+                          } else if (currentPage > totalPages - 4) {
+                            pageNum = totalPages - 5 + i;
+                          } else {
+                            pageNum = currentPage - 2 + i;
+                          }
+                          return (
+                            <Button
+                              key={pageNum}
+                              variant={
+                                currentPage === pageNum ? "default" : "outline"
+                              }
+                              size="sm"
+                              onClick={() => setCurrentPage(pageNum)}
+                            >
+                              {pageNum + 1}
+                            </Button>
+                          );
+                        }
+                      )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setCurrentPage((prev) =>
+                          Math.min(totalPages - 1, prev + 1)
+                        )
+                      }
+                      disabled={currentPage === totalPages - 1}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

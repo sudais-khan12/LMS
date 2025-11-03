@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
+import { Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { signIn, getSession, useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,9 +14,11 @@ import { useToast } from "@/hooks/use-toast";
 import { AuthCard } from "@/components/auth/AuthCard";
 import { Globe } from "lucide-react";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
+  const { data: session, status } = useSession();
   const [loading, setLoading] = React.useState(false);
   const [formData, setFormData] = React.useState({
     email: "",
@@ -22,6 +26,20 @@ export default function LoginPage() {
     rememberMe: false,
   });
   const [errors, setErrors] = React.useState<Record<string, string>>({});
+
+  // Redirect authenticated users to their dashboard
+  React.useEffect(() => {
+    if (status === "authenticated" && session?.user?.role) {
+      const role = session.user.role;
+      if (role === "ADMIN") {
+        router.replace("/admin");
+      } else if (role === "TEACHER") {
+        router.replace("/teacher");
+      } else if (role === "STUDENT") {
+        router.replace("/student");
+      }
+    }
+  }, [session, status, router]);
 
   const validateEmail = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -61,19 +79,85 @@ export default function LoginPage() {
 
     setLoading(true);
 
-    // Simulate API call
-    setTimeout(() => {
-      setLoading(false);
-      toast({
-        title: "Login Successful",
-        description: "Redirecting to dashboard...",
+    try {
+      const result = await signIn("credentials", {
+        email: formData.email,
+        password: formData.password,
+        redirect: false,
       });
 
-      // Redirect to role selector after successful login
-      setTimeout(() => {
-        router.push("/select-role");
-      }, 1000);
-    }, 1500);
+      if (result?.error) {
+        toast({
+          variant: "destructive",
+          title: "Login Failed",
+          description: result.error || "Invalid email or password",
+        });
+        setLoading(false);
+        return;
+      }
+
+      if (result?.ok) {
+        toast({
+          title: "Login Successful",
+          description: "Redirecting to dashboard...",
+        });
+
+        // Small delay to ensure session is updated
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        
+        // Fetch session to get user role from API
+        let redirectUrl = "/select-role"; // fallback
+        
+        try {
+          const response = await fetch("/api/auth/session");
+          const sessionData = await response.json();
+          const role = sessionData?.data?.user?.role;
+          
+          if (role) {
+            if (role === "ADMIN") {
+              redirectUrl = "/admin";
+            } else if (role === "TEACHER") {
+              redirectUrl = "/teacher";
+            } else if (role === "STUDENT") {
+              redirectUrl = "/student";
+            }
+          } else {
+            // Fallback: try getSession from next-auth/react
+            const session = await getSession();
+            if (session?.user?.role) {
+              const role = session.user.role;
+              if (role === "ADMIN") {
+                redirectUrl = "/admin";
+              } else if (role === "TEACHER") {
+                redirectUrl = "/teacher";
+              } else if (role === "STUDENT") {
+                redirectUrl = "/student";
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Error fetching session:", err);
+        }
+
+        // Check if there's a callbackUrl in query params (for protected routes)
+        const callbackUrl = searchParams.get("callbackUrl");
+        if (callbackUrl && callbackUrl !== "/select-role") {
+          redirectUrl = callbackUrl;
+        }
+
+        // Redirect to the appropriate dashboard
+        router.push(redirectUrl);
+        router.refresh();
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "An error occurred during login",
+      });
+      setLoading(false);
+    }
   };
 
   const handleChange = (field: string, value: string | boolean) => {
@@ -83,6 +167,18 @@ export default function LoginPage() {
       setErrors((prev) => ({ ...prev, [field]: "" }));
     }
   };
+
+  // Show loading state while checking session
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center p-4">
@@ -194,5 +290,22 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <p className="mt-4 text-muted-foreground">Loading...</p>
+          </div>
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }
