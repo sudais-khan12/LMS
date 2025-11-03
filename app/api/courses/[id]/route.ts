@@ -10,9 +10,10 @@ const updateCourseSchema = z.object({
 	code: z.string().min(1).optional(),
 });
 
-export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
 	try {
-		const course = await prisma.course.findUnique({ where: { id: params.id }, include: { teacher: true } });
+		const { id } = await params;
+		const course = await prisma.course.findUnique({ where: { id }, include: { teacher: true } });
 		if (!course) return NextResponse.json({ success: false, message: 'Course not found' }, { status: 404 });
 		return NextResponse.json({ success: true, message: 'Course fetched', data: course }, { status: 200 });
 	} catch (error) {
@@ -22,13 +23,14 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
 	}
 }
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
 	try {
+		const { id } = await params;
 		const session = await auth();
 		if (!session || !session.user) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
 		const role = session.user.role as Role;
 
-		const course = await prisma.course.findUnique({ where: { id: params.id } });
+		const course = await prisma.course.findUnique({ where: { id } });
 		if (!course) return NextResponse.json({ success: false, message: 'Course not found' }, { status: 404 });
 
 		if (role !== 'ADMIN') {
@@ -42,7 +44,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 		const parsed = updateCourseSchema.safeParse(body);
 		if (!parsed.success) return NextResponse.json({ success: false, message: 'Validation error', data: parsed.error.issues }, { status: 400 });
 
-		const updated = await prisma.course.update({ where: { id: params.id }, data: parsed.data });
+		const updated = await prisma.course.update({ where: { id }, data: parsed.data });
 		return NextResponse.json({ success: true, message: 'Course updated', data: updated }, { status: 200 });
 	} catch (error) {
 		// eslint-disable-next-line no-console
@@ -51,14 +53,15 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 	}
 }
 
-export async function DELETE(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
 	try {
+		const { id } = await params;
 		const session = await auth();
 		if (!session || !session.user) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
 		const role = session.user.role as Role;
 		if (role !== 'ADMIN') return NextResponse.json({ success: false, message: 'Forbidden' }, { status: 403 });
 
-		await prisma.course.delete({ where: { id: params.id } });
+		await prisma.course.delete({ where: { id } });
 		return NextResponse.json({ success: true, message: 'Course deleted' }, { status: 200 });
 	} catch (error) {
 		// eslint-disable-next-line no-console

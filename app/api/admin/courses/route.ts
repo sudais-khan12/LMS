@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { apiError, apiSuccess } from '@/lib/api/response';
 import { requireAdmin } from '@/lib/api/adminAuth';
 import { parsePagination } from '@/lib/api/pagination';
+import { Prisma } from '@prisma/client';
 
 const createCourseSchema = z.object({
   title: z.string().min(2),
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
     const teacherId = searchParams.get('teacherId') || undefined;
     const q = searchParams.get('q') || '';
 
-    const where: any = {};
+    const where: Prisma.CourseWhereInput = {};
     if (teacherId) where.teacherId = teacherId;
     if (q) where.OR = [
       { title: { contains: q, mode: 'insensitive' } },
@@ -86,8 +87,8 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(apiSuccess(created), { status: 201 });
-  } catch (error: any) {
-    if (error?.code === 'P2002') {
+  } catch (error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return NextResponse.json(apiError('Course code already exists'), { status: 409 });
     }
     console.error('POST /admin/courses error:', error);
@@ -117,12 +118,14 @@ export async function PUT(request: NextRequest) {
     });
 
     return NextResponse.json(apiSuccess(updated), { status: 200 });
-  } catch (error: any) {
-    if (error?.code === 'P2025') {
-      return NextResponse.json(apiError('Course not found'), { status: 404 });
-    }
-    if (error?.code === 'P2002') {
-      return NextResponse.json(apiError('Course code already exists'), { status: 409 });
+  } catch (error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2025') {
+        return NextResponse.json(apiError('Course not found'), { status: 404 });
+      }
+      if (error.code === 'P2002') {
+        return NextResponse.json(apiError('Course code already exists'), { status: 409 });
+      }
     }
     console.error('PUT /admin/courses error:', error);
     return NextResponse.json(apiError('Internal server error'), { status: 500 });
@@ -140,8 +143,8 @@ export async function DELETE(request: NextRequest) {
 
     await prisma.course.delete({ where: { id } });
     return NextResponse.json(apiSuccess({ id }), { status: 200 });
-  } catch (error: any) {
-    if (error?.code === 'P2025') {
+  } catch (error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       return NextResponse.json(apiError('Course not found'), { status: 404 });
     }
     console.error('DELETE /admin/courses error:', error);

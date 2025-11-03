@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 
 interface Course {
-  id: number;
+  id: string; // Changed to string to match API CUID format
   title: string;
   description: string;
   instructor: string;

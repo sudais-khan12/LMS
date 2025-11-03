@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
 
-export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
 	try {
+		const { id } = await params;
 		const session = await auth();
 		if (!session || !session.user) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
 
 		const submission = await prisma.submission.findUnique({
-			where: { id: params.id },
+			where: { id },
 			include: { assignment: { include: { course: true } }, student: true },
 		});
 		if (!submission) return NextResponse.json({ success: false, message: 'Submission not found' }, { status: 404 });

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { apiError, apiSuccess } from '@/lib/api/response';
 import { requireAdmin } from '@/lib/api/adminAuth';
 import { parsePagination } from '@/lib/api/pagination';
+import { Prisma } from '@prisma/client';
 
 const createStudentSchema = z.object({
   userId: z.string(),
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
     const q = searchParams.get('q') || '';
 
     // Filter by course: students who have attendance in that course
-    const where: any = {};
+    const where: Prisma.StudentWhereInput = {};
     if (q) where.user = { OR: [
       { name: { contains: q, mode: 'insensitive' } },
       { email: { contains: q, mode: 'insensitive' } },
@@ -91,8 +92,8 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(apiSuccess(created), { status: 201 });
-  } catch (error: any) {
-    if (error?.code === 'P2002') {
+  } catch (error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return NextResponse.json(apiError('Student already exists for user or duplicate enrollment'), { status: 409 });
     }
     console.error('POST /admin/students error:', error);
@@ -122,8 +123,8 @@ export async function PUT(request: NextRequest) {
     });
 
     return NextResponse.json(apiSuccess(updated), { status: 200 });
-  } catch (error: any) {
-    if (error?.code === 'P2025') {
+  } catch (error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       return NextResponse.json(apiError('Student not found'), { status: 404 });
     }
     console.error('PUT /admin/students error:', error);
@@ -165,12 +166,21 @@ export async function DELETE(request: NextRequest) {
     // Now delete the student profile
     await prisma.student.delete({ where: { id } });
     return NextResponse.json(apiSuccess({ id }), { status: 200 });
-  } catch (error: any) {
-    if (error?.code === 'P2025') {
-      return NextResponse.json(apiError('Student not found'), { status: 404 });
+  } catch (error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2025') {
+        return NextResponse.json(apiError('Student not found'), { status: 404 });
+      }
+      // Handle foreign key constraint errors
+      if (error.code === 'P2003') {
+        return NextResponse.json(
+          apiError('Cannot delete student: Student has related records that need to be deleted first'),
+          { status: 409 }
+        );
+      }
     }
-    // Handle foreign key constraint errors
-    if (error?.code === 'P2003' || error?.message?.includes('foreign key')) {
+    // Check for foreign key constraint in error message
+    if (error instanceof Error && error.message.includes('foreign key')) {
       return NextResponse.json(
         apiError('Cannot delete student: Student has related records that need to be deleted first'),
         { status: 409 }

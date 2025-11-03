@@ -91,7 +91,7 @@ export default function AdminReportsPage() {
     // Transform course stats
     const courseStats = attendanceReportData.courseStats.map((course) => {
       // Calculate trend (simplified - could compare with previous period)
-      const trend = course.attendancePercentage >= 90 ? "up" : 
+      const trend: "up" | "down" | "stable" = course.attendancePercentage >= 90 ? "up" : 
                     course.attendancePercentage < 80 ? "down" : "stable";
       
       // Estimate low attendance alerts (students with < 70% attendance)

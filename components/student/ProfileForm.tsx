@@ -200,13 +200,14 @@ export default function ProfileForm({
       }
     } else {
       // Fallback - simulate save
-    toast({
-      title: "Profile Updated",
-      description: "Your profile has been updated successfully!",
-    });
-    
-    setIsDirty(false);
-    console.log("Saving profile data:", formData);
+      toast({
+        title: "Profile Updated",
+        description: "Your profile has been updated successfully!",
+      });
+      
+      setIsDirty(false);
+      console.log("Saving profile data:", formData);
+    }
   };
 
   const handlePasswordSave = () => {

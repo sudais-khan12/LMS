@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { Role } from '@prisma/client';
+import { Role, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
 import { apiError, apiSuccess } from '@/lib/api/response';
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     const role = (searchParams.get('role') as Role | null) || null;
     const q = searchParams.get('q') || '';
 
-    const where: any = {};
+    const where: Prisma.UserWhereInput = {};
     if (role) where.role = role;
     if (q) where.OR = [
       { name: { contains: q, mode: 'insensitive' } },
@@ -108,8 +108,8 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(apiSuccess(created), { status: 201 });
-  } catch (error: any) {
-    if (error?.code === 'P2002') {
+  } catch (error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return NextResponse.json(apiError('Email already exists'), { status: 409 });
     }
     console.error('POST /admin/users error:', error);
@@ -129,7 +129,7 @@ export async function PUT(request: NextRequest) {
     }
     const data = parsed.data;
 
-    const updates: any = {};
+    const updates: Prisma.UserUpdateInput = {};
     if (data.name) updates.name = data.name;
     if (data.email) updates.email = data.email;
     if (data.password) updates.password = await bcrypt.hash(data.password, 10);
@@ -180,8 +180,8 @@ export async function PUT(request: NextRequest) {
     });
 
     return NextResponse.json(apiSuccess(finalUser), { status: 200 });
-  } catch (error: any) {
-    if (error?.code === 'P2025') {
+  } catch (error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       return NextResponse.json(apiError('User not found'), { status: 404 });
     }
     console.error('PUT /admin/users error:', error);
@@ -289,16 +289,18 @@ export async function DELETE(request: NextRequest) {
     await prisma.user.delete({ where: { id } });
 
     return NextResponse.json(apiSuccess({ id }), { status: 200 });
-  } catch (error: any) {
-    if (error?.code === 'P2025') {
-      return NextResponse.json(apiError('User not found'), { status: 404 });
-    }
-    // Handle foreign key constraint errors
-    if (error?.code === 'P2003' || error?.message?.includes('foreign key')) {
-      return NextResponse.json(
-        apiError('Cannot delete user: User has related records that need to be deleted first'),
-        { status: 409 }
-      );
+  } catch (error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2025') {
+        return NextResponse.json(apiError('User not found'), { status: 404 });
+      }
+      // Handle foreign key constraint errors
+      if (error.code === 'P2003') {
+        return NextResponse.json(
+          apiError('Cannot delete user: User has related records that need to be deleted first'),
+          { status: 409 }
+        );
+      }
     }
     console.error('DELETE /admin/users error:', error);
     return NextResponse.json(apiError('Internal server error'), { status: 500 });

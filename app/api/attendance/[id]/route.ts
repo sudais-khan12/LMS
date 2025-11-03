@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
-import { Role } from '@prisma/client';
+import { Role, Prisma } from '@prisma/client';
 import { z } from 'zod';
 
 const updateAttendanceSchema = z.object({
@@ -9,15 +9,16 @@ const updateAttendanceSchema = z.object({
   date: z.string().optional(),
 });
 
-export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const session = await auth();
     if (!session || !session.user) {
       return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
     }
 
     const attendance = await prisma.attendance.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         student: {
           include: {
@@ -74,8 +75,9 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
   }
 }
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const session = await auth();
     if (!session || !session.user) {
       return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
@@ -88,7 +90,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     // Check existing attendance
     const existing = await prisma.attendance.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         course: {
           include: {
@@ -133,7 +135,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     }
 
     const updated = await prisma.attendance.update({
-      where: { id: params.id },
+      where: { id },
       data: updateData,
       include: {
         student: {
@@ -164,8 +166,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const session = await auth();
     if (!session || !session.user) {
       return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
@@ -177,7 +180,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: { id: 
     }
 
     await prisma.attendance.delete({
-      where: { id: params.id },
+      where: { id },
     });
 
     return NextResponse.json({ success: true, message: 'Attendance deleted successfully' }, { status: 200 });

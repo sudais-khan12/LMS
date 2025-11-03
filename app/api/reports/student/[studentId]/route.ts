@@ -3,8 +3,9 @@ import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
 import { Role } from '@prisma/client';
 
-export async function GET(request: NextRequest, { params }: { params: { studentId: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ studentId: string }> }) {
   try {
+    const { studentId } = await params;
     const session = await auth();
     if (!session || !session.user) {
       return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
@@ -20,19 +21,19 @@ export async function GET(request: NextRequest, { params }: { params: { studentI
         where: { userId: session.user.id },
       });
 
-      if (!student || student.id !== params.studentId) {
+      if (!student || student.id !== studentId) {
         return NextResponse.json({ success: false, message: 'Forbidden: You can only view your own reports' }, { status: 403 });
       }
     } else if (role === 'TEACHER') {
       const teacher = await prisma.teacher.findUnique({
         where: { userId: session.user.id },
         include: {
-          courses: {
-            include: {
-              attendance: {
-                where: {
-                  studentId: params.studentId,
-                },
+            courses: {
+              include: {
+                attendance: {
+                  where: {
+                    studentId,
+                  },
                 select: {
                   id: true,
                 },
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest, { params }: { params: { studentI
 
     // Get student reports
     const where: any = {
-      studentId: params.studentId,
+      studentId,
     };
 
     if (semester) {
@@ -72,7 +73,7 @@ export async function GET(request: NextRequest, { params }: { params: { studentI
     // Get attendance summary
     const attendanceRecords = await prisma.attendance.findMany({
       where: {
-        studentId: params.studentId,
+        studentId,
       },
       include: {
         course: {
@@ -94,7 +95,7 @@ export async function GET(request: NextRequest, { params }: { params: { studentI
     // Get assignment statistics
     const submissions = await prisma.submission.findMany({
       where: {
-        studentId: params.studentId,
+        studentId,
       },
       include: {
         assignment: {
@@ -208,7 +209,7 @@ export async function GET(request: NextRequest, { params }: { params: { studentI
 
     // Get student info
     const student = await prisma.student.findUnique({
-      where: { id: params.studentId },
+      where: { id: studentId },
       include: {
         user: {
           select: {

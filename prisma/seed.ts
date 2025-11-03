@@ -28,7 +28,7 @@ async function main() {
   const admin = await prisma.user.create({
     data: {
       name: "System Admin",
-      email: "admin@example.com",
+      email: "admin@lancerstech.com",
       password: adminPassword,
       role: Role.ADMIN,
     },
@@ -73,7 +73,7 @@ async function main() {
   const mainTeacher = await prisma.user.create({
     data: {
       name: teacherNames[0],
-      email: "teacher@example.com",
+      email: "teacher@lancerstech.com",
       password: teacherPassword,
       role: Role.TEACHER,
       teacher: {
@@ -93,7 +93,7 @@ async function main() {
     const user = await prisma.user.create({
       data: {
         name: teacherNames[nameIndex] || `Teacher ${i}`,
-        email: `teacher${i}@example.com`,
+        email: `teacher${i}@lancerstech.com`,
         password: teacherPassword,
         role: Role.TEACHER,
         teacher: {
@@ -144,7 +144,7 @@ async function main() {
   const mainStudent = await prisma.user.create({
     data: {
       name: "Student User",
-      email: "student@example.com",
+      email: "student@lancerstech.com",
       password: studentPassword,
       role: Role.STUDENT,
       student: {
@@ -170,7 +170,7 @@ async function main() {
     const user = await prisma.user.create({
       data: {
         name: `${firstName} ${lastName}`,
-        email: `student${i}@example.com`,
+        email: `student${i}@lancerstech.com`,
         password: studentPassword,
         role: Role.STUDENT,
         student: {
@@ -446,7 +446,7 @@ async function main() {
           data: {
             assignmentId: assignment.id,
             studentId: studentId,
-            fileUrl: `https://example.com/submissions/${student?.id || studentId}/${assignment.id}`,
+            fileUrl: `https://lancerstech.com/submissions/${student?.id || studentId}/${assignment.id}`,
             grade: grade,
             submittedAt: submittedDate,
           },

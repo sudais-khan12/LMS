@@ -4,14 +4,15 @@ import { apiError, apiSuccess } from '@/lib/api/response';
 import { requireTeacher } from '@/lib/api/teacherAuth';
 import { updateLeaveStatusSchema } from '@/lib/validation/leave';
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const teacherAuth = await requireTeacher();
   if (!teacherAuth.ok) return teacherAuth.response;
 
   try {
+    const { id } = await params;
     // Get existing leave request
     const existing = await prisma.leaveRequest.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         requester: { select: { id: true, name: true, email: true } },
         student: { select: { id: true } },
@@ -59,7 +60,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
     // Update status
     const updated = await prisma.leaveRequest.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         status: parsed.data.status,
         approverId: parsed.data.status !== 'PENDING' ? teacherAuth.session.user.id : null,

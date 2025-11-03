@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { apiError, apiSuccess } from '@/lib/api/response';
 import { requireAdmin } from '@/lib/api/adminAuth';
 import { parsePagination } from '@/lib/api/pagination';
+import { Prisma } from '@prisma/client';
 
 const createTeacherSchema = z.object({
   userId: z.string(), // link existing user as teacher
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
     const activeParam = searchParams.get('active');
     const isActive = activeParam === null ? undefined : activeParam === 'true';
 
-    const where: any = {};
+    const where: Prisma.TeacherWhereInput = {};
     if (isActive !== undefined) where.isActive = isActive;
 
     const [items, total] = await Promise.all([
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
         include: {
           user: { select: { id: true, name: true, email: true } },
         },
-        orderBy: { user: { createdAt: 'desc' } } as any,
+        orderBy: { user: { createdAt: 'desc' } } as Prisma.TeacherOrderByWithRelationInput,
         skip,
         take: limit,
       }),
@@ -72,8 +73,8 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(apiSuccess(created), { status: 201 });
-  } catch (error: any) {
-    if (error?.code === 'P2002') {
+  } catch (error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return NextResponse.json(apiError('Teacher for user already exists'), { status: 409 });
     }
     console.error('POST /admin/teachers error:', error);
@@ -102,8 +103,8 @@ export async function PUT(request: NextRequest) {
     });
 
     return NextResponse.json(apiSuccess(updated), { status: 200 });
-  } catch (error: any) {
-    if (error?.code === 'P2025') {
+  } catch (error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       return NextResponse.json(apiError('Teacher not found'), { status: 404 });
     }
     console.error('PUT /admin/teachers error:', error);
@@ -129,12 +130,12 @@ export async function DELETE(request: NextRequest) {
     // Now delete the teacher profile
     await prisma.teacher.delete({ where: { id } });
     return NextResponse.json(apiSuccess({ id }), { status: 200 });
-  } catch (error: any) {
-    if (error?.code === 'P2025') {
+  } catch (error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       return NextResponse.json(apiError('Teacher not found'), { status: 404 });
     }
-    // Handle foreign key constraint errors
-    if (error?.code === 'P2003' || error?.message?.includes('foreign key')) {
+    // Check for foreign key constraint in error message
+    if (error instanceof Error && error.message.includes('foreign key')) {
       return NextResponse.json(
         apiError('Cannot delete teacher: Teacher has related records that need to be handled first'),
         { status: 409 }

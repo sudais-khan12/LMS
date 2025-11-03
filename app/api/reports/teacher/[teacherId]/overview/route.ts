@@ -3,8 +3,9 @@ import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
 import { Role } from '@prisma/client';
 
-export async function GET(request: NextRequest, { params }: { params: { teacherId: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ teacherId: string }> }) {
   try {
+    const { teacherId } = await params;
     const session = await auth();
     if (!session || !session.user) {
       return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest, { params }: { params: { teacherI
 
     // Verify teacher access
     const teacher = await prisma.teacher.findUnique({
-      where: { id: params.teacherId },
+      where: { id: teacherId },
       include: {
         user: {
           select: { id: true, name: true, email: true },
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest, { params }: { params: { teacherI
 
     // Get teacher's courses
     const courses = await prisma.course.findMany({
-      where: { teacherId: params.teacherId },
+      where: { teacherId },
       include: {
         assignments: {
           include: {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
-import { Role } from '@prisma/client';
+import { Role, Prisma } from '@prisma/client';
 import { z } from 'zod';
 
 const updateReportSchema = z.object({
@@ -12,7 +12,7 @@ const updateReportSchema = z.object({
 
 // Helper function to calculate GPA (same as in route.ts)
 async function calculateGPA(studentId: string, courseId?: string): Promise<number> {
-  const submissionWhere: any = { studentId };
+  const submissionWhere: Prisma.SubmissionWhereInput = { studentId };
   if (courseId) {
     submissionWhere.assignment = { courseId };
   }
@@ -32,7 +32,7 @@ async function calculateGPA(studentId: string, courseId?: string): Promise<numbe
   const avgScore = validGrades.length > 0 ? validGrades.reduce((acc, grade) => acc + grade, 0) / validGrades.length : 0;
   const assignmentScore = (avgScore / 100) * 4;
 
-  const attendanceWhere: any = { studentId };
+  const attendanceWhere: Prisma.AttendanceWhereInput = { studentId };
   if (courseId) {
     attendanceWhere.courseId = courseId;
   }
@@ -54,8 +54,9 @@ async function calculateGPA(studentId: string, courseId?: string): Promise<numbe
   return Math.round(gpa * 100) / 100;
 }
 
-export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const session = await auth();
     if (!session || !session.user) {
       return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
@@ -64,7 +65,7 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
     const role = session.user.role as Role;
 
     const report = await prisma.report.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         student: {
           include: {
@@ -130,8 +131,9 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
   }
 }
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const session = await auth();
     if (!session || !session.user) {
       return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
@@ -143,7 +145,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     }
 
     const existingReport = await prisma.report.findUnique({
-      where: { id: params.id },
+      where: { id },
     });
 
     if (!existingReport) {
@@ -188,7 +190,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ success: false, message: 'Validation error', data: parsed.error.issues }, { status: 400 });
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.ReportUpdateInput = {};
     if (parsed.data.gpa !== undefined) updateData.gpa = parsed.data.gpa;
     if (parsed.data.remarks !== undefined) updateData.remarks = parsed.data.remarks;
     if (parsed.data.semester !== undefined) updateData.semester = parsed.data.semester;
@@ -199,7 +201,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     }
 
     const updated = await prisma.report.update({
-      where: { id: params.id },
+      where: { id },
       data: updateData,
       include: {
         student: {

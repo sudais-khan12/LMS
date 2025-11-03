@@ -166,6 +166,7 @@ export default function AdminCoursesPage() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [editingCourse, setEditingCourse] = useState<{ id: string; title: string; code: string; description?: string; teacherId?: string } | null>(null);
+  const [isTogglingStatus, setIsTogglingStatus] = useState(false);
 
   // Filter courses on client side (since API handles search, but we do category/status filtering)
   // Note: Search is handled server-side via the `q` parameter
@@ -304,24 +305,15 @@ export default function AdminCoursesPage() {
     courseId: string,
     currentStatus: string
   ) => {
-    setIsLoading(true);
+    setIsTogglingStatus(true);
     try {
       // Simulate API call
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      setCourses((prevCourses) =>
-        prevCourses.map((course) =>
-          course.id === courseId
-            ? {
-                ...course,
-                status:
-                  currentStatus === "Active"
-                    ? "Archived"
-                    : ("Active" as "Active" | "Archived"),
-              }
-            : course
-        )
-      );
+      // Note: Status toggle functionality would need to be implemented via API
+      // For now, just refresh the courses list
+      await queryClient.invalidateQueries({ queryKey: ["admin", "courses"] });
+      await refetchCourses();
 
       toast({
         title: "Status updated",
@@ -336,7 +328,7 @@ export default function AdminCoursesPage() {
         variant: "destructive",
       });
     } finally {
-      setIsLoading(false);
+      setIsTogglingStatus(false);
     }
   };
 
@@ -822,9 +814,9 @@ export default function AdminCoursesPage() {
                               ? "text-yellow-600 hover:text-yellow-700"
                               : "text-green-600 hover:text-green-700"
                           )}
-                          disabled={isLoading}
+                          disabled={isLoading || isTogglingStatus}
                         >
-                          {isLoading ? (
+                          {isTogglingStatus ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
                           ) : course.status === "Active" ? (
                             "Archive"
@@ -917,8 +909,28 @@ export default function AdminCoursesPage() {
         }}
         course={selectedCourse}
         onEdit={(course) => {
+          // Find the actual API course to get the real code and teacherId
+          const actualCourse = coursesData?.items?.find(c => c.id === course.id);
+          if (!actualCourse) {
+            toast({
+              title: "Error",
+              description: "Course data not found",
+              variant: "destructive",
+            });
+            return;
+          }
+          
+          // Convert API Course to form format
+          const apiCourse = {
+            id: actualCourse.id,
+            title: actualCourse.title,
+            code: actualCourse.code,
+            description: actualCourse.description,
+            teacherId: actualCourse.teacherId,
+          };
+          
           setIsCourseDetailsOpen(false);
-          setEditingCourse(course);
+          setEditingCourse(apiCourse);
           setIsCourseFormOpen(true);
         }}
       />
