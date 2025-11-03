@@ -9,6 +9,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
 import { useToast } from "@/hooks/use-toast";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Search,
   Plus,
@@ -35,126 +37,67 @@ import {
 import TeacherForm from "@/components/admin/TeacherForm";
 import TeacherDetailsModal from "@/components/admin/TeacherDetailsModal";
 import DeleteConfirmationModal from "@/components/admin/DeleteConfirmationModal";
+import {
+  useAdminTeachers,
+  useCreateAdminTeacher,
+  useUpdateAdminTeacher,
+  useDeleteAdminTeacher,
+  useCreateAdminUser,
+  useUpdateAdminUser,
+  useDeleteAdminUser,
+  type AdminTeacher,
+} from "@/lib/hooks/api/admin";
 
-// Teacher interface
+// Teacher interface - matches API data mapped to UI
 interface Teacher {
-  id: number;
+  id: string; // Changed to string to match API
   name: string;
   email: string;
   phone: string;
   avatar: string;
-  department: string;
+  department: string; // Derived/computed
   specialization: string;
-  experience: string;
+  experience: string; // Derived/computed
   joinDate: string;
-  lastActive: string;
+  lastActive: string; // Derived/computed
   status: "Active" | "Pending" | "Inactive" | "Suspended";
-  courses: string[];
-  studentsCount: number;
-  rating: number;
-  officeHours: string;
-  location: string;
-  verified: boolean;
+  courses: string[]; // Derived from courses count
+  studentsCount: number; // Derived from courses
+  rating: number; // Derived/computed
+  officeHours: string; // Not in DB
+  location: string; // Not in DB
+  verified: boolean; // Derived
 }
 
-// Mock teachers data
-const initialTeachersData: Teacher[] = [
-  {
-    id: 1,
-    name: "Dr. Sarah Wilson",
-    email: "sarah.wilson@lms.com",
-    phone: "+1 (555) 123-4567",
-    avatar: "SW",
-    department: "Computer Science",
-    specialization: "Web Development",
-    experience: "8 years",
-    joinDate: "2020-01-15",
-    lastActive: "2 hours ago",
-    status: "Active" as const,
-    courses: ["React Fundamentals", "JavaScript Advanced"],
-    studentsCount: 156,
-    rating: 4.9,
-    officeHours: "Mon-Fri 10:00 AM - 4:00 PM",
-    location: "San Francisco, CA",
-    verified: true,
-  },
-  {
-    id: 2,
-    name: "Prof. Mike Johnson",
-    email: "mike.johnson@lms.com",
-    phone: "+1 (555) 234-5678",
-    avatar: "MJ",
-    department: "Computer Science",
-    specialization: "Backend Development",
-    experience: "6 years",
-    joinDate: "2021-03-20",
-    lastActive: "1 hour ago",
-    status: "Active" as const,
-    courses: ["Node.js Backend", "Database Design"],
-    studentsCount: 98,
-    rating: 4.8,
-    officeHours: "Tue-Thu 2:00 PM - 6:00 PM",
-    location: "New York, NY",
-    verified: true,
-  },
-  {
-    id: 3,
-    name: "Dr. Emily Davis",
-    email: "emily.davis@lms.com",
-    phone: "+1 (555) 345-6789",
-    avatar: "ED",
-    department: "Design",
-    specialization: "UI/UX Design",
-    experience: "5 years",
-    joinDate: "2022-06-10",
-    lastActive: "30 minutes ago",
-    status: "Active" as const,
-    courses: ["UI/UX Design Principles"],
-    studentsCount: 76,
-    rating: 4.7,
-    officeHours: "Mon-Wed-Fri 9:00 AM - 1:00 PM",
-    location: "Los Angeles, CA",
-    verified: true,
-  },
-  {
-    id: 4,
-    name: "Prof. David Brown",
-    email: "david.brown@lms.com",
-    phone: "+1 (555) 456-7890",
-    avatar: "DB",
-    department: "Computer Science",
-    specialization: "Database Systems",
-    experience: "10 years",
-    joinDate: "2019-08-05",
-    lastActive: "1 day ago",
-    status: "Active" as const,
-    courses: ["Database Design", "SQL Advanced"],
-    studentsCount: 134,
-    rating: 4.9,
-    officeHours: "Mon-Fri 11:00 AM - 3:00 PM",
-    location: "Chicago, IL",
-    verified: true,
-  },
-  {
-    id: 5,
-    name: "Dr. Lisa Garcia",
-    email: "lisa.garcia@lms.com",
-    phone: "+1 (555) 567-8901",
-    avatar: "LG",
-    department: "Mathematics",
-    specialization: "Data Science",
-    experience: "7 years",
-    joinDate: "2021-09-15",
-    lastActive: "3 hours ago",
-    status: "Pending" as const,
-    courses: ["Data Analysis", "Machine Learning Basics"],
-    studentsCount: 0,
-    rating: 0,
-    officeHours: "Tue-Thu 1:00 PM - 5:00 PM",
-    location: "Boston, MA",
-    verified: false,
-  },
-];
+// Map API teacher data to UI format
+function mapApiTeacherToUI(teacher: AdminTeacher): Teacher {
+  const initials = teacher.user?.name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2) || "T";
+
+  return {
+    id: teacher.id,
+    name: teacher.user?.name || "Unknown",
+    email: teacher.user?.email || "",
+    phone: teacher.contact || "",
+    avatar: initials,
+    department: teacher.specialization?.split(" ")[0] || "General",
+    specialization: teacher.specialization || "Not specified",
+    experience: "N/A", // Not stored in DB
+    joinDate: new Date().toISOString().split("T")[0], // Derived from user.createdAt if available
+    lastActive: "Recently", // Not stored in DB
+    status: teacher.isActive ? ("Active" as const) : ("Inactive" as const),
+    courses: [], // Would need to fetch courses separately
+    studentsCount: 0, // Would need to calculate from courses
+    rating: 0, // Not stored in DB
+    officeHours: "", // Not stored in DB
+    location: "", // Not stored in DB
+    verified: true, // Assume verified for active teachers
+  };
+}
 
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -184,13 +127,37 @@ type SortDirection = "asc" | "desc";
 
 export default function AdminTeachersPage() {
   const { toast } = useToast();
-  const [teachers, setTeachers] = useState<Teacher[]>(initialTeachersData);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterDepartment, setFilterDepartment] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
-  const [isLoading, setIsLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
+  const pageSize = 20;
+
+  // API hooks
+  const queryClient = useQueryClient();
+  const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
+  const {
+    data: teachersData,
+    isLoading,
+    error,
+    refetch: refetchTeachers,
+  } = useAdminTeachers({
+    limit: pageSize,
+    skip: currentPage * pageSize,
+    active: filterStatus === "Active" ? true : filterStatus === "Inactive" ? false : undefined,
+  });
+
+  const createUser = useCreateAdminUser(); // Use user creation API for teachers
+  const updateUser = useUpdateAdminUser();
+  const updateTeacher = useUpdateAdminTeacher();
+  const deleteUser = useDeleteAdminUser(); // Use user deletion API (cascades to teacher)
+
+  const teachers = useMemo(() => {
+    if (!teachersData?.items) return [];
+    return teachersData.items.map(mapApiTeacherToUI);
+  }, [teachersData]);
 
   // Modal states
   const [isTeacherFormOpen, setIsTeacherFormOpen] = useState(false);
@@ -199,9 +166,10 @@ export default function AdminTeachersPage() {
   const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
 
-  // Filter and sort teachers
-  const filteredAndSortedTeachers = useMemo(() => {
-    const filtered = teachers.filter((teacher) => {
+  // Filter teachers on client side (since API handles active status filtering)
+  // Note: Search would need to be handled server-side if API supports it
+  const filteredTeachers = useMemo(() => {
+    return teachers.filter((teacher) => {
       const matchesSearch =
         teacher.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         teacher.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -215,9 +183,13 @@ export default function AdminTeachersPage() {
         filterStatus === "All" || teacher.status === filterStatus;
       return matchesSearch && matchesDepartment && matchesStatus;
     });
+  }, [teachers, searchTerm, filterDepartment, filterStatus]);
 
-    // Sort teachers
-    filtered.sort((a, b) => {
+  // Sort teachers on client side
+  const filteredAndSortedTeachers = useMemo(() => {
+    const sorted = [...filteredTeachers];
+
+    sorted.sort((a, b) => {
       let aValue: string | number;
       let bValue: string | number;
 
@@ -264,15 +236,17 @@ export default function AdminTeachersPage() {
       return 0;
     });
 
-    return filtered;
+    return sorted;
   }, [
-    teachers,
-    searchTerm,
-    filterDepartment,
-    filterStatus,
+    filteredTeachers,
     sortField,
     sortDirection,
   ]);
+
+  // Calculate pagination info
+  const totalPages = Math.ceil((teachersData?.total || 0) / pageSize);
+  const startIndex = currentPage * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, teachersData?.total || 0);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -298,6 +272,7 @@ export default function AdminTeachersPage() {
   };
 
   const handleEditTeacher = (teacher: Teacher) => {
+    // Convert UI Teacher to form format - the form expects Teacher interface
     setEditingTeacher(teacher);
     setIsTeacherFormOpen(true);
   };
@@ -313,130 +288,130 @@ export default function AdminTeachersPage() {
   };
 
   const handleToggleStatus = async (
-    teacherId: number,
+    teacherId: string,
     currentStatus: string
   ) => {
-    setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const actualTeacher = teachersData?.items?.find(t => t.id === teacherId);
+      if (!actualTeacher) {
+        toast({
+          title: "Error",
+          description: "Teacher not found",
+          variant: "destructive",
+        });
+        return;
+      }
 
-      setTeachers((prevTeachers) =>
-        prevTeachers.map((teacher) =>
-          teacher.id === teacherId
-            ? {
-                ...teacher,
-                status:
-                  currentStatus === "Active"
-                    ? "Inactive"
-                    : ("Active" as "Active" | "Inactive"),
-                lastActive: "Just now",
-              }
-            : teacher
-        )
-      );
-
-      toast({
-        title: "Status updated",
-        description: `Teacher status has been ${
-          currentStatus === "Active" ? "deactivated" : "activated"
-        }.`,
+      await updateTeacher.mutateAsync({
+        id: teacherId,
+        isActive: currentStatus === "Active" ? false : true,
       });
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: "Failed to update teacher status",
+        description: error?.message || "Failed to update teacher status",
         variant: "destructive",
       });
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const handleSaveTeacher = async (
-    teacherData: Partial<Teacher> & { name: string }
+    teacherData: Partial<Teacher> & { name: string; email: string; password?: string }
   ) => {
-    setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
       if (editingTeacher) {
-        // Update existing teacher
-        setTeachers((prevTeachers) =>
-          prevTeachers.map((teacher) =>
-            teacher.id === editingTeacher.id
-              ? {
-                  ...teacher,
-                  ...teacherData,
-                  lastActive: "Just now",
-                }
-              : teacher
-          )
-        );
-      } else {
-        // Add new teacher
-        const newTeacher: Teacher = {
-          id: Math.max(...teachers.map((t) => t.id)) + 1,
+        // Update existing teacher - need to find the actual API teacher data
+        const actualTeacher = teachersData?.items?.find(t => t.id === editingTeacher.id);
+        if (!actualTeacher) {
+          throw new Error("Teacher not found");
+        }
+
+        // Update user info
+        await updateUser.mutateAsync({
+          id: actualTeacher.userId,
           name: teacherData.name,
-          email: teacherData.email ?? "",
-          phone: teacherData.phone ?? "",
-          avatar:
-            teacherData.avatar ??
-            teacherData.name
-              .split(" ")
-              .map((n: string) => n[0])
-              .join("")
-              .toUpperCase(),
-          department: teacherData.department ?? "General",
-          specialization: teacherData.specialization ?? "",
-          experience: teacherData.experience ?? "0 years",
-          joinDate: new Date().toISOString().split("T")[0],
-          lastActive: "Just now",
-          status: (teacherData.status as Teacher["status"]) ?? "Active",
-          courses: teacherData.courses ?? [],
-          studentsCount: teacherData.studentsCount ?? 0,
-          rating: teacherData.rating ?? 0,
-          officeHours: teacherData.officeHours ?? "",
-          location: teacherData.location ?? "",
-          verified: teacherData.verified ?? false,
-        };
-        setTeachers((prevTeachers) => [...prevTeachers, newTeacher]);
+          email: teacherData.email,
+          password: teacherData.password,
+        });
+
+        // Update teacher-specific info
+        await updateTeacher.mutateAsync({
+          id: editingTeacher.id,
+          specialization: teacherData.specialization,
+          contact: teacherData.phone,
+        });
+      } else {
+        // Create new teacher - use user creation API with role TEACHER
+        if (!teacherData.password) {
+          throw new Error("Password is required for new teachers");
+        }
+        
+        await createUser.mutateAsync({
+          name: teacherData.name,
+          email: teacherData.email,
+          password: teacherData.password,
+          role: "TEACHER",
+          specialization: teacherData.specialization,
+          contact: teacherData.phone,
+        });
+        
+        // Reset to first page when creating new teacher
+        setCurrentPage(0);
       }
-    } catch (error) {
-      throw error; // Re-throw to be handled by the form
-    } finally {
-      setIsLoading(false);
+      
+      // Close the form first
+      setIsTeacherFormOpen(false);
+      setEditingTeacher(null);
+      
+      // Invalidate and refetch all teacher queries
+      await queryClient.invalidateQueries({ queryKey: ["admin", "teachers"] });
+      await queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+      
+      // Explicitly refetch the current query
+      await refetchTeachers();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error?.message || (editingTeacher ? "Failed to update teacher" : "Failed to create teacher"),
+        variant: "destructive",
+      });
+      throw error;
     }
   };
 
   const handleConfirmDelete = async () => {
     if (!selectedTeacher) return;
 
-    setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const actualTeacher = teachersData?.items?.find(t => t.id === selectedTeacher.id);
+      if (!actualTeacher) {
+        toast({
+          title: "Error",
+          description: "Teacher not found",
+          variant: "destructive",
+        });
+        return;
+      }
 
-      setTeachers((prevTeachers) =>
-        prevTeachers.filter((teacher) => teacher.id !== selectedTeacher.id)
-      );
-
-      toast({
-        title: "Teacher deleted",
-        description: `${selectedTeacher.name} has been removed from the system.`,
-      });
-
+      // Delete via user API (cascades to teacher)
+      await deleteUser.mutateAsync(actualTeacher.userId);
+      
+      // Close modal first
       setIsDeleteModalOpen(false);
       setSelectedTeacher(null);
-    } catch (error) {
+      
+      // Invalidate and refetch all teacher queries
+      await queryClient.invalidateQueries({ queryKey: ["admin", "teachers"] });
+      await queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+      
+      // Explicitly refetch the current query
+      await refetchTeachers();
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: "Failed to delete teacher",
+        description: error?.message || "Failed to delete teacher",
         variant: "destructive",
       });
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -496,7 +471,7 @@ export default function AdminTeachersPage() {
                   Total Teachers
                 </p>
                 <p className="text-2xl font-bold text-foreground">
-                  {teachers.length}
+                  {teachersData?.total || 0}
                 </p>
               </div>
             </div>
@@ -655,7 +630,7 @@ export default function AdminTeachersPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
             <GraduationCap className="h-5 w-5 text-primary" />
-            Teachers ({filteredAndSortedTeachers.length})
+            Teachers ({teachersData?.total || 0} total)
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -878,6 +853,51 @@ export default function AdminTeachersPage() {
         </CardContent>
       </Card>
 
+      {/* Pagination */}
+      {teachersData && teachersData.total > 0 && (
+        <Card
+          className={cn(
+            glassStyles.card,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                Showing {startIndex + 1} to {endIndex} of {teachersData.total} teachers
+                {totalPages > 1 && ` (Page ${currentPage + 1} of ${totalPages})`}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+                  disabled={currentPage === 0 || isLoading}
+                  className="flex items-center gap-1"
+                >
+                  <ArrowUp className="h-4 w-4 rotate-[-90deg]" />
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground px-2">
+                  Page {currentPage + 1} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
+                  disabled={currentPage >= totalPages - 1 || isLoading}
+                  className="flex items-center gap-1"
+                >
+                  Next
+                  <ArrowDown className="h-4 w-4 rotate-[-90deg]" />
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Modals */}
       <TeacherForm
         isOpen={isTeacherFormOpen}
@@ -904,7 +924,7 @@ export default function AdminTeachersPage() {
         }}
       />
 
-      <DeleteConfirmationModal
+        <DeleteConfirmationModal
         isOpen={isDeleteModalOpen}
         onClose={() => {
           setIsDeleteModalOpen(false);
@@ -913,7 +933,7 @@ export default function AdminTeachersPage() {
         onConfirm={handleConfirmDelete}
         title="Delete Teacher"
         description={`Are you sure you want to delete ${selectedTeacher?.name}? This action cannot be undone.`}
-        isLoading={isLoading}
+        isLoading={deleteUser.isPending}
       />
     </div>
   );
