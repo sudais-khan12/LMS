@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, LogOut } from "lucide-react";
@@ -104,6 +105,7 @@ export default function DashboardSidebar({
       <div className="p-4 border-t border-white/10">
         <Button
           variant="ghost"
+          onClick={() => signOut({ callbackUrl: "/login", redirect: true })}
           className={cn(
             "w-full justify-start text-gray-700 hover:bg-red-50 hover:text-red-600",
             isCollapsed && "justify-center"

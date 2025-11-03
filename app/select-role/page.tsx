@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { RoleCard } from "@/components/auth/RoleCard";
 import { Users, GraduationCap, UserCheck } from "lucide-react";
 
@@ -31,10 +32,64 @@ const roles = [
 
 export default function SelectRolePage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
+
+  // Auto-redirect based on user role if authenticated
+  React.useEffect(() => {
+    if (status === "authenticated" && session?.user) {
+      const role = session.user.role;
+      if (role === "ADMIN") {
+        router.replace("/admin");
+      } else if (role === "TEACHER") {
+        router.replace("/teacher");
+      } else if (role === "STUDENT") {
+        router.replace("/student");
+      }
+    } else if (status === "unauthenticated") {
+      // Redirect to login if not authenticated
+      router.replace("/login");
+    }
+  }, [session, status, router]);
 
   const handleRoleSelect = (route: string) => {
-    router.push(route);
+    // Only allow navigation if user's role matches the selected route
+    if (status === "authenticated" && session?.user) {
+      const userRole = session.user.role;
+      const routeRole = route.includes("admin")
+        ? "ADMIN"
+        : route.includes("teacher")
+        ? "TEACHER"
+        : "STUDENT";
+
+      if (userRole === routeRole) {
+        router.push(route);
+      } else {
+        // If role doesn't match, redirect based on actual role
+        if (userRole === "ADMIN") {
+          router.push("/admin");
+        } else if (userRole === "TEACHER") {
+          router.push("/teacher");
+        } else if (userRole === "STUDENT") {
+          router.push("/student");
+        }
+      }
+    } else {
+      // Not authenticated, redirect to login
+      router.push(`/login?callbackUrl=${encodeURIComponent(route)}`);
+    }
   };
+
+  // Show loading state while checking session
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center p-4">

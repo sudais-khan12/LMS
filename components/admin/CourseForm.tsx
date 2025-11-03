@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -22,58 +22,50 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { apiClient } from "@/lib/apiClient";
 
-// Course schema for validation
+// Course schema for validation - matches API schema
 const courseSchema = z.object({
-  title: z.string().min(3, "Title must be at least 3 characters"),
-  description: z.string().min(10, "Description must be at least 10 characters"),
-  instructor: z.string().min(2, "Instructor name must be at least 2 characters"),
-  category: z.string().min(2, "Category must be at least 2 characters"),
-  level: z.enum(["Beginner", "Intermediate", "Advanced"]),
-  duration: z.string().min(1, "Duration is required"),
-  maxStudents: z.number().min(1, "Max students must be at least 1"),
-  price: z.number().min(0, "Price must be non-negative"),
-  status: z.enum(["Active", "Draft", "Archived", "Suspended"]),
-  startDate: z.string().min(1, "Start date is required"),
-  endDate: z.string().min(1, "End date is required"),
-  lessons: z.number().min(1, "Lessons must be at least 1"),
+  title: z.string().min(2, "Title must be at least 2 characters"),
+  code: z.string().min(2, "Code must be at least 2 characters"),
+  description: z.string().optional(),
+  teacherId: z.string().optional(),
 });
 
 type CourseFormData = z.infer<typeof courseSchema>;
 
 interface Course {
-  id: number;
+  id: string;
   title: string;
-  description: string;
-  instructor: string;
-  category: string;
-  level: "Beginner" | "Intermediate" | "Advanced";
-  duration: string;
-  students: number;
-  maxStudents: number;
-  rating: number;
-  price: number;
-  status: "Active" | "Draft" | "Archived" | "Suspended";
-  startDate: string;
-  endDate: string;
-  lessons: number;
-  completedLessons: number;
-  thumbnail: string;
+  code: string;
+  description?: string;
+  teacherId?: string;
+  teacher?: {
+    id: string;
+    user: {
+      id: string;
+      name: string;
+      email: string;
+    };
+  };
 }
 
 interface CourseFormProps {
   isOpen: boolean;
   onClose: () => void;
   course?: Course | null;
-  onSave: (courseData: CourseFormData) => void;
+  onSave: (courseData: CourseFormData) => Promise<void>;
   isLoading?: boolean;
 }
 
 export default function CourseForm({ isOpen, onClose, course, onSave, isLoading = false }: CourseFormProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [teachers, setTeachers] = useState<Array<{ id: string; user: { name: string; email: string } }>>([]);
+  const [loadingTeachers, setLoadingTeachers] = useState(false);
 
   const {
     register,
@@ -86,54 +78,73 @@ export default function CourseForm({ isOpen, onClose, course, onSave, isLoading 
     resolver: zodResolver(courseSchema),
     defaultValues: course ? {
       title: course.title,
-      description: course.description,
-      instructor: course.instructor,
-      category: course.category,
-      level: course.level,
-      duration: course.duration,
-      maxStudents: course.maxStudents,
-      price: course.price,
-      status: course.status,
-      startDate: course.startDate,
-      endDate: course.endDate,
-      lessons: course.lessons,
+      code: course.code || "",
+      description: course.description || "",
+      teacherId: course.teacherId || "",
     } : {
       title: "",
+      code: "",
       description: "",
-      instructor: "",
-      category: "",
-      level: "Beginner",
-      duration: "",
-      maxStudents: 50,
-      price: 0,
-      status: "Draft",
-      startDate: "",
-      endDate: "",
-      lessons: 1,
+      teacherId: "",
     },
   });
 
-  const watchedLevel = watch("level");
-  const watchedStatus = watch("status");
+  // Fetch teachers when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const fetchTeachers = async () => {
+        setLoadingTeachers(true);
+        try {
+          const response = await apiClient<{
+            success: boolean;
+            data: {
+              items: Array<{ id: string; user: { name: string; email: string } }>;
+            };
+          }>("/api/admin/teachers");
+          
+          if (response.success && response.data) {
+            setTeachers(response.data.items);
+          }
+        } catch (error) {
+          console.error("Failed to fetch teachers:", error);
+        } finally {
+          setLoadingTeachers(false);
+        }
+      };
+      fetchTeachers();
+    }
+  }, [isOpen]);
+
+  // Reset form when course changes
+  useEffect(() => {
+    if (course) {
+      reset({
+        title: course.title,
+        code: course.code || "",
+        description: course.description || "",
+        teacherId: course.teacherId || "",
+      });
+    } else {
+      reset({
+        title: "",
+        code: "",
+        description: "",
+        teacherId: "",
+      });
+    }
+  }, [course, reset]);
+
+  const watchedTeacherId = watch("teacherId");
 
   const onSubmit = async (data: CourseFormData) => {
     setIsSubmitting(true);
     try {
       await onSave(data);
-      toast({
-        title: course ? "Course updated successfully" : "Course created successfully",
-        description: course 
-          ? `${data.title} has been updated.`
-          : `${data.title} has been added to the system.`,
-      });
       reset();
       onClose();
     } catch (error) {
-      toast({
-        title: "Error",
-        description: course ? "Failed to update course" : "Failed to create course",
-        variant: "destructive",
-      });
+      // Error handling is done in the parent component
+      // The mutation hooks already show toast messages
     } finally {
       setIsSubmitting(false);
     }
@@ -162,7 +173,7 @@ export default function CourseForm({ isOpen, onClose, course, onSave, isLoading 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Course Title</Label>
+              <Label htmlFor="title">Course Title *</Label>
               <Input
                 id="title"
                 {...register("title")}
@@ -175,28 +186,27 @@ export default function CourseForm({ isOpen, onClose, course, onSave, isLoading 
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="instructor">Instructor</Label>
+              <Label htmlFor="code">Course Code *</Label>
               <Input
-                id="instructor"
-                {...register("instructor")}
-                placeholder="Enter instructor name"
-                className={cn(errors.instructor && "border-red-500")}
+                id="code"
+                {...register("code")}
+                placeholder="e.g., CS101"
+                className={cn(errors.code && "border-red-500")}
               />
-              {errors.instructor && (
-                <p className="text-sm text-red-500">{errors.instructor.message}</p>
+              {errors.code && (
+                <p className="text-sm text-red-500">{errors.code.message}</p>
               )}
             </div>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="description">Description</Label>
-            <textarea
+            <Textarea
               id="description"
               {...register("description")}
-              placeholder="Enter course description"
+              placeholder="Enter course description (optional)"
               rows={3}
               className={cn(
-                "flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
                 errors.description && "border-red-500"
               )}
             />
@@ -205,147 +215,26 @@ export default function CourseForm({ isOpen, onClose, course, onSave, isLoading 
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="category">Category</Label>
-              <Input
-                id="category"
-                {...register("category")}
-                placeholder="Enter category"
-                className={cn(errors.category && "border-red-500")}
-              />
-              {errors.category && (
-                <p className="text-sm text-red-500">{errors.category.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="level">Level</Label>
-              <Select
-                value={watchedLevel}
-                onValueChange={(value) => setValue("level", value as "Beginner" | "Intermediate" | "Advanced")}
-              >
-                <SelectTrigger className={cn(errors.level && "border-red-500")}>
-                  <SelectValue placeholder="Select level" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Beginner">Beginner</SelectItem>
-                  <SelectItem value="Intermediate">Intermediate</SelectItem>
-                  <SelectItem value="Advanced">Advanced</SelectItem>
-                </SelectContent>
-              </Select>
-              {errors.level && (
-                <p className="text-sm text-red-500">{errors.level.message}</p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="duration">Duration</Label>
-              <Input
-                id="duration"
-                {...register("duration")}
-                placeholder="e.g., 8 weeks"
-                className={cn(errors.duration && "border-red-500")}
-              />
-              {errors.duration && (
-                <p className="text-sm text-red-500">{errors.duration.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="lessons">Number of Lessons</Label>
-              <Input
-                id="lessons"
-                type="number"
-                {...register("lessons", { valueAsNumber: true })}
-                placeholder="Enter number of lessons"
-                className={cn(errors.lessons && "border-red-500")}
-              />
-              {errors.lessons && (
-                <p className="text-sm text-red-500">{errors.lessons.message}</p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="maxStudents">Max Students</Label>
-              <Input
-                id="maxStudents"
-                type="number"
-                {...register("maxStudents", { valueAsNumber: true })}
-                placeholder="Enter max students"
-                className={cn(errors.maxStudents && "border-red-500")}
-              />
-              {errors.maxStudents && (
-                <p className="text-sm text-red-500">{errors.maxStudents.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="price">Price ($)</Label>
-              <Input
-                id="price"
-                type="number"
-                step="0.01"
-                {...register("price", { valueAsNumber: true })}
-                placeholder="Enter price"
-                className={cn(errors.price && "border-red-500")}
-              />
-              {errors.price && (
-                <p className="text-sm text-red-500">{errors.price.message}</p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="startDate">Start Date</Label>
-              <Input
-                id="startDate"
-                type="date"
-                {...register("startDate")}
-                className={cn(errors.startDate && "border-red-500")}
-              />
-              {errors.startDate && (
-                <p className="text-sm text-red-500">{errors.startDate.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="endDate">End Date</Label>
-              <Input
-                id="endDate"
-                type="date"
-                {...register("endDate")}
-                className={cn(errors.endDate && "border-red-500")}
-              />
-              {errors.endDate && (
-                <p className="text-sm text-red-500">{errors.endDate.message}</p>
-              )}
-            </div>
-          </div>
-
           <div className="space-y-2">
-            <Label htmlFor="status">Status</Label>
+            <Label htmlFor="teacherId">Teacher (Optional)</Label>
             <Select
-              value={watchedStatus}
-              onValueChange={(value) => setValue("status", value as "Active" | "Draft" | "Archived" | "Suspended")}
+              value={watchedTeacherId || undefined}
+              onValueChange={(value) => setValue("teacherId", value || undefined)}
+              disabled={loadingTeachers}
             >
-              <SelectTrigger className={cn(errors.status && "border-red-500")}>
-                <SelectValue placeholder="Select status" />
+              <SelectTrigger className={cn(errors.teacherId && "border-red-500")}>
+                <SelectValue placeholder={loadingTeachers ? "Loading teachers..." : "Select a teacher (optional)"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Draft">Draft</SelectItem>
-                <SelectItem value="Active">Active</SelectItem>
-                <SelectItem value="Archived">Archived</SelectItem>
-                <SelectItem value="Suspended">Suspended</SelectItem>
+                {teachers.map((teacher) => (
+                  <SelectItem key={teacher.id} value={teacher.id}>
+                    {teacher.user.name} ({teacher.user.email})
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            {errors.status && (
-              <p className="text-sm text-red-500">{errors.status.message}</p>
+            {errors.teacherId && (
+              <p className="text-sm text-red-500">{errors.teacherId.message}</p>
             )}
           </div>
 

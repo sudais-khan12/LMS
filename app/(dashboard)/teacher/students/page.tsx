@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,12 +26,17 @@ import {
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import {
-  teacherStudentsData,
-  detailedClassesData,
   glassStyles,
   animationClasses,
-  TeacherStudent,
 } from "@/config/teacher-constants";
+import {
+  useTeacherStudents,
+  useTeacherClasses,
+  useMoveTeacherStudent,
+  useRemoveTeacherStudentFromCourse,
+  type TeacherStudent as APITeacherStudent,
+} from "@/lib/hooks/api/teacher";
+import { Loader2 } from "lucide-react";
 import {
   Search,
   Eye,
@@ -59,10 +64,43 @@ import {
 
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444"];
 
+// Local UI type for display
+interface TeacherStudentUI {
+  id: string;
+  name: string;
+  email: string;
+  studentId: string;
+  classId: string;
+  className: string;
+  classCode: string;
+  attendance: number;
+  progress: number;
+  grade: string;
+  status: "Active" | "At Risk" | "Inactive";
+  completedAssignments: number;
+  totalAssignments: number;
+  avatar: string;
+  lastActive: string;
+}
+
 export default function TeacherStudentsPage() {
   const { toast } = useToast();
-  const [students, setStudents] =
-    useState<TeacherStudent[]>(teacherStudentsData);
+
+  // API hooks
+  const {
+    data: studentsData,
+    isLoading: studentsLoading,
+    refetch: refetchStudents,
+  } = useTeacherStudents({ limit: 1000 });
+  const { data: coursesData } = useTeacherClasses({ limit: 100 });
+  
+  // Mutation hooks
+  const moveStudent = useMoveTeacherStudent();
+  const removeStudent = useRemoveTeacherStudentFromCourse();
+
+  const apiStudents = studentsData?.items || [];
+  const courses = coursesData?.items || [];
+
   const [searchQuery, setSearchQuery] = useState("");
   const [classFilter, setClassFilter] = useState("all");
   const [performanceFilter, setPerformanceFilter] = useState("all");
@@ -72,98 +110,161 @@ export default function TeacherStudentsPage() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState<TeacherStudent | null>(
+  const [selectedStudent, setSelectedStudent] = useState<TeacherStudentUI | null>(
     null
   );
   const [newClassId, setNewClassId] = useState("");
+  const [currentPage, setCurrentPage] = useState(0);
+  const pageSize = 20;
+
+  // Map API students to UI format
+  const students = useMemo(() => {
+    return apiStudents.flatMap((student: APITeacherStudent) => {
+      // Create one entry per course for the student
+      return student.courses.map((course) => ({
+        id: `${student.id}-${course.id}`,
+        _apiId: student.id,
+        _userId: student.userId,
+        name: student.name,
+        email: student.email,
+        studentId: student.studentId,
+        classId: course.id,
+        className: course.title,
+        classCode: course.code,
+        attendance: student.attendance,
+        progress: student.progress,
+        grade: student.grade,
+        status: student.status,
+        completedAssignments: student.completedAssignments,
+        totalAssignments: student.totalAssignments,
+        avatar: student.name.substring(0, 2).toUpperCase(),
+        lastActive: student.lastActive
+          ? new Date(student.lastActive).toLocaleDateString()
+          : "Never",
+      } as TeacherStudentUI));
+    });
+  }, [apiStudents]);
 
   // Filter and sort students
-  const filteredAndSortedStudents = students
-    .filter((student) => {
-      const matchesSearch =
-        student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        student.studentId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        student.email.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesClass =
-        classFilter === "all" || student.classId === Number(classFilter);
-      const matchesPerformance =
-        performanceFilter === "all" ||
-        (performanceFilter === "high" &&
-          (student.grade.startsWith("A") || student.attendance >= 90)) ||
-        (performanceFilter === "medium" &&
-          (student.grade.startsWith("B") ||
-            (student.attendance >= 75 && student.attendance < 90))) ||
-        (performanceFilter === "low" &&
-          (student.grade.startsWith("C") || student.attendance < 75));
-      return matchesSearch && matchesClass && matchesPerformance;
-    })
-    .sort((a, b) => {
-      if (sortBy === "name") return a.name.localeCompare(b.name);
-      if (sortBy === "attendance") return b.attendance - a.attendance;
-      if (sortBy === "progress") return b.progress - a.progress;
-      if (sortBy === "grade") {
-        const gradeOrder = {
-          "A+": 5,
-          A: 4,
-          "B+": 3,
-          B: 3,
-          "C+": 2,
-          C: 2,
-          D: 1,
-        };
-        return (
-          (gradeOrder[b.grade as keyof typeof gradeOrder] || 0) -
-          (gradeOrder[a.grade as keyof typeof gradeOrder] || 0)
-        );
-      }
-      return 0;
+  const filteredAndSortedStudents = useMemo(() => {
+    return students
+      .filter((student) => {
+        const matchesSearch =
+          student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          student.studentId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          student.email.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesClass =
+          classFilter === "all" || student.classId === classFilter;
+        const matchesPerformance =
+          performanceFilter === "all" ||
+          (performanceFilter === "high" &&
+            (student.grade.startsWith("A") || student.attendance >= 90)) ||
+          (performanceFilter === "medium" &&
+            (student.grade.startsWith("B") ||
+              (student.attendance >= 75 && student.attendance < 90))) ||
+          (performanceFilter === "low" &&
+            (student.grade.startsWith("C") || student.attendance < 75));
+        return matchesSearch && matchesClass && matchesPerformance;
+      })
+      .sort((a, b) => {
+        if (sortBy === "name") return a.name.localeCompare(b.name);
+        if (sortBy === "attendance") return b.attendance - a.attendance;
+        if (sortBy === "progress") return b.progress - a.progress;
+        if (sortBy === "grade") {
+          const gradeOrder = {
+            "A+": 5,
+            A: 4,
+            "B+": 3,
+            B: 3,
+            "C+": 2,
+            C: 2,
+            D: 1,
+            "N/A": 0,
+            F: 0,
+          };
+          return (
+            (gradeOrder[b.grade as keyof typeof gradeOrder] || 0) -
+            (gradeOrder[a.grade as keyof typeof gradeOrder] || 0)
+          );
+        }
+        return 0;
+      });
+  }, [students, searchQuery, classFilter, performanceFilter, sortBy]);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredAndSortedStudents.length / pageSize);
+  const paginatedStudents = filteredAndSortedStudents.slice(
+    currentPage * pageSize,
+    (currentPage + 1) * pageSize
+  );
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [searchQuery, classFilter, performanceFilter]);
+
+  // Chart data (using unique students only)
+  const uniqueStudents = useMemo(() => {
+    const seen = new Set<string>();
+    return students.filter((s) => {
+      if (seen.has(s._apiId)) return false;
+      seen.add(s._apiId);
+      return true;
     });
+  }, [students]);
 
-  // Chart data
-  const chartData = [
-    {
-      name: "A",
-      students: students.filter((s) => s.grade.startsWith("A")).length,
-    },
-    {
-      name: "B",
-      students: students.filter((s) => s.grade.startsWith("B")).length,
-    },
-    {
-      name: "C",
-      students: students.filter((s) => s.grade.startsWith("C")).length,
-    },
-    {
-      name: "Others",
-      students: students.filter(
-        (s) =>
-          !s.grade.startsWith("A") &&
-          !s.grade.startsWith("B") &&
-          !s.grade.startsWith("C")
-      ).length,
-    },
-  ];
+  const chartData = useMemo(
+    () => [
+      {
+        name: "A",
+        students: uniqueStudents.filter((s) => s.grade.startsWith("A")).length,
+      },
+      {
+        name: "B",
+        students: uniqueStudents.filter((s) => s.grade.startsWith("B")).length,
+      },
+      {
+        name: "C",
+        students: uniqueStudents.filter((s) => s.grade.startsWith("C")).length,
+      },
+      {
+        name: "Others",
+        students: uniqueStudents.filter(
+          (s) =>
+            !s.grade.startsWith("A") &&
+            !s.grade.startsWith("B") &&
+            !s.grade.startsWith("C")
+        ).length,
+      },
+    ],
+    [uniqueStudents]
+  );
 
-  const attendanceChartData = [
-    {
-      range: "90-100%",
-      students: students.filter((s) => s.attendance >= 90).length,
-    },
-    {
-      range: "75-89%",
-      students: students.filter((s) => s.attendance >= 75 && s.attendance < 90)
-        .length,
-    },
-    {
-      range: "50-74%",
-      students: students.filter((s) => s.attendance >= 50 && s.attendance < 75)
-        .length,
-    },
-    {
-      range: "< 50%",
-      students: students.filter((s) => s.attendance < 50).length,
-    },
-  ];
+  const attendanceChartData = useMemo(
+    () => [
+      {
+        range: "90-100%",
+        students: uniqueStudents.filter((s) => s.attendance >= 90).length,
+      },
+      {
+        range: "75-89%",
+        students: uniqueStudents.filter(
+          (s) => s.attendance >= 75 && s.attendance < 90
+        ).length,
+      },
+      {
+        range: "50-74%",
+        students: uniqueStudents.filter(
+          (s) => s.attendance >= 50 && s.attendance < 75
+        ).length,
+      },
+      {
+        range: "< 50%",
+        students: uniqueStudents.filter((s) => s.attendance < 50).length,
+      },
+    ],
+    [uniqueStudents]
+  );
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -188,66 +289,61 @@ export default function TeacherStudentsPage() {
     return "bg-red-100 text-red-800 border-red-200";
   };
 
-  const openProfileModal = (student: TeacherStudent) => {
+  const openProfileModal = (student: TeacherStudentUI) => {
     setSelectedStudent(student);
     setIsProfileModalOpen(true);
   };
 
-  const openMoveModal = (student: TeacherStudent) => {
+  const openMoveModal = (student: TeacherStudentUI) => {
     setSelectedStudent(student);
     setIsMoveModalOpen(true);
   };
 
-  const openDeleteModal = (student: TeacherStudent) => {
+  const openDeleteModal = (student: TeacherStudentUI) => {
     setSelectedStudent(student);
     setIsDeleteModalOpen(true);
   };
 
-  const handleMoveStudent = () => {
-    if (!selectedStudent || !newClassId) return;
+  const handleMoveStudent = async () => {
+    if (!selectedStudent || !newClassId) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please select a course to move the student to",
+      });
+      return;
+    }
 
-    const newClass = detailedClassesData.find(
-      (c) => c.id === Number(newClassId)
-    );
-    if (!newClass) return;
-
-    const updatedStudents = students.map((s) =>
-      s.id === selectedStudent.id
-        ? {
-            ...s,
-            classId: Number(newClassId),
-            className: newClass.subject,
-            classCode: newClass.classCode,
-          }
-        : s
-    );
-
-    setStudents(updatedStudents);
-    setIsMoveModalOpen(false);
-    setSelectedStudent(null);
-    setNewClassId("");
-
-    toast({
-      title: "Success",
-      description: `Student moved to ${newClass.subject}`,
-    });
+    try {
+      await moveStudent.mutateAsync({
+        studentId: selectedStudent._apiId,
+        fromCourseId: selectedStudent.classId,
+        toCourseId: newClassId,
+      });
+      setIsMoveModalOpen(false);
+      setSelectedStudent(null);
+      setNewClassId("");
+      await refetchStudents();
+    } catch (error) {
+      // Error handled by mutation hook
+    }
   };
 
-  const handleRemoveStudent = () => {
+  const handleRemoveStudent = async () => {
     if (!selectedStudent) return;
 
-    const updatedStudents = students.filter((s) => s.id !== selectedStudent.id);
-    setStudents(updatedStudents);
-    setIsDeleteModalOpen(false);
-    setSelectedStudent(null);
-
-    toast({
-      title: "Success",
-      description: "Student removed from class",
-    });
+    try {
+      await removeStudent.mutateAsync({
+        studentId: selectedStudent._apiId,
+        courseId: selectedStudent.classId,
+      });
+      setIsDeleteModalOpen(false);
+      setSelectedStudent(null);
+      await refetchStudents();
+    } catch (error) {
+      // Error handled by mutation hook
+    }
   };
-
-  const uniqueClasses = detailedClassesData;
 
   return (
     <div className="space-y-6">
@@ -388,12 +484,9 @@ export default function TeacherStudentsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Classes</SelectItem>
-                {uniqueClasses.map((classItem) => (
-                  <SelectItem
-                    key={classItem.id}
-                    value={classItem.id.toString()}
-                  >
-                    {classItem.subject}
+                {courses.map((course) => (
+                  <SelectItem key={course.id} value={course.id}>
+                    {course.title} - {course.code}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -443,35 +536,47 @@ export default function TeacherStudentsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border/50">
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Student
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Class
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Progress
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Attendance
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Grade
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Status
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredAndSortedStudents.map((student) => (
+          {studentsLoading ? (
+            <div className="text-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+              <p className="text-muted-foreground mt-4">Loading students...</p>
+            </div>
+          ) : filteredAndSortedStudents.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground">
+                {students.length === 0 ? "No students enrolled in your courses yet" : "No students found"}
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border/50">
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Student
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Class
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Progress
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Attendance
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Grade
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Status
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedStudents.map((student) => (
                   <tr
                     key={student.id}
                     className="border-b border-border/30 hover:bg-muted/30 transition-colors duration-200"
@@ -571,10 +676,66 @@ export default function TeacherStudentsPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-4 border-t border-border/50">
+              <div className="text-sm text-muted-foreground">
+                Showing {currentPage * pageSize + 1} to{" "}
+                {Math.min((currentPage + 1) * pageSize, filteredAndSortedStudents.length)} of{" "}
+                {filteredAndSortedStudents.length} students
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((prev) => Math.max(0, prev - 1))}
+                  disabled={currentPage === 0}
+                >
+                  Previous
+                </Button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum: number;
+                    if (totalPages <= 5) {
+                      pageNum = i;
+                    } else if (currentPage < 3) {
+                      pageNum = i;
+                    } else if (currentPage > totalPages - 4) {
+                      pageNum = totalPages - 5 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                      >
+                        {pageNum + 1}
+                      </Button>
+                    );
+                  })}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setCurrentPage((prev) => Math.min(totalPages - 1, prev + 1))
+                  }
+                  disabled={currentPage === totalPages - 1}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -598,10 +759,12 @@ export default function TeacherStudentsPage() {
                   Average Progress
                 </p>
                 <p className="text-2xl font-bold text-foreground">
-                  {Math.round(
-                    students.reduce((acc, s) => acc + s.progress, 0) /
-                      students.length
-                  )}
+                  {uniqueStudents.length > 0
+                    ? Math.round(
+                        uniqueStudents.reduce((acc, s) => acc + s.progress, 0) /
+                          uniqueStudents.length
+                      )
+                    : 0}
                   %
                 </p>
               </div>
@@ -627,10 +790,12 @@ export default function TeacherStudentsPage() {
                   Average Attendance
                 </p>
                 <p className="text-2xl font-bold text-foreground">
-                  {Math.round(
-                    students.reduce((acc, s) => acc + s.attendance, 0) /
-                      students.length
-                  )}
+                  {uniqueStudents.length > 0
+                    ? Math.round(
+                        uniqueStudents.reduce((acc, s) => acc + s.attendance, 0) /
+                          uniqueStudents.length
+                      )
+                    : 0}
                   %
                 </p>
               </div>
@@ -656,7 +821,7 @@ export default function TeacherStudentsPage() {
                   Top Performers
                 </p>
                 <p className="text-2xl font-bold text-foreground">
-                  {students.filter((s) => s.grade.startsWith("A")).length}
+                  {uniqueStudents.filter((s) => s.grade.startsWith("A")).length}
                 </p>
               </div>
             </div>
@@ -681,7 +846,7 @@ export default function TeacherStudentsPage() {
                   At Risk
                 </p>
                 <p className="text-2xl font-bold text-foreground">
-                  {students.filter((s) => s.status === "At Risk").length}
+                  {uniqueStudents.filter((s) => s.status === "At Risk").length}
                 </p>
               </div>
             </div>
@@ -704,7 +869,7 @@ export default function TeacherStudentsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-sm text-muted-foreground">
-                    Student ID
+                    Enrollment No.
                   </Label>
                   <p className="text-sm font-medium">
                     {selectedStudent.studentId}
@@ -798,14 +963,11 @@ export default function TeacherStudentsPage() {
                   <SelectValue placeholder="Choose a class" />
                 </SelectTrigger>
                 <SelectContent>
-                  {uniqueClasses
+                  {courses
                     .filter((c) => c.id !== selectedStudent?.classId)
-                    .map((classItem) => (
-                      <SelectItem
-                        key={classItem.id}
-                        value={classItem.id.toString()}
-                      >
-                        {classItem.subject} - {classItem.classCode}
+                    .map((course) => (
+                      <SelectItem key={course.id} value={course.id}>
+                        {course.title} - {course.code}
                       </SelectItem>
                     ))}
                 </SelectContent>
@@ -816,7 +978,16 @@ export default function TeacherStudentsPage() {
             <Button variant="outline" onClick={() => setIsMoveModalOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleMoveStudent}>Move Student</Button>
+            <Button onClick={handleMoveStudent} disabled={moveStudent.isPending}>
+              {moveStudent.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Moving...
+                </>
+              ) : (
+                "Move Student"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -838,8 +1009,19 @@ export default function TeacherStudentsPage() {
             >
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleRemoveStudent}>
-              Remove Student
+            <Button
+              variant="destructive"
+              onClick={handleRemoveStudent}
+              disabled={removeStudent.isPending}
+            >
+              {removeStudent.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Removing...
+                </>
+              ) : (
+                "Remove Student"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -14,44 +14,168 @@ import {
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
 import { useToast } from "@/hooks/use-toast";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Search,
-  Filter,
   BookOpen,
-  Plus,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
   Eye,
   Loader2,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import {
-  StudentCourse,
-  mockStudentCourses,
-  courseCategories,
-  CourseCard,
-  CourseEnrollmentModal,
-  CourseDetailsModal,
-} from "@/features/courses";
+  useStudentCourses,
+  type StudentCourse as ApiStudentCourse,
+} from "@/lib/hooks/api/student";
+import { useQueryClient } from "@tanstack/react-query";
+import { apiClient } from "@/lib/apiClient";
+import type { ApiSuccess } from "@/lib/api/response";
+
+interface StudentCourse {
+  id: string;
+  title: string;
+  instructor: string;
+  category: string;
+  description: string;
+  progress: number;
+  status: "Enrolled" | "Completed" | "In Progress";
+  level: string;
+  assignmentsCount: number;
+  completedAssignments: number;
+  attendancePercentage: number;
+}
 
 type SortField = "title" | "instructor" | "progress" | "status" | "category";
 type SortDirection = "asc" | "desc";
 
+// Course Card Component
+function CourseCard({
+  course,
+  onView,
+  onUnenroll,
+  isLoading,
+}: {
+  course: StudentCourse;
+  onView: () => void;
+  onUnenroll: () => void;
+  isLoading?: boolean;
+}) {
+  return (
+    <Card
+      className={cn(
+        glassStyles.card,
+        glassStyles.cardHover,
+        "rounded-2xl shadow-glass-sm",
+        animationClasses.scaleIn,
+        "group"
+      )}
+    >
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between">
+          <div className="flex-1 min-w-0">
+            <CardTitle className="text-lg font-semibold text-foreground mb-1 line-clamp-2">
+              {course.title}
+            </CardTitle>
+            <p className="text-sm text-muted-foreground mb-2">
+              {course.instructor}
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="text-xs px-2 py-1 rounded bg-primary/10 text-primary">
+                {course.category}
+              </span>
+              <span className="text-xs px-2 py-1 rounded bg-muted text-muted-foreground">
+                {course.status}
+              </span>
+            </div>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Progress</span>
+            <span className="font-medium text-foreground">{course.progress}%</span>
+          </div>
+          <div className="h-2 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary transition-all"
+              style={{ width: `${course.progress}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              {course.completedAssignments} of {course.assignmentsCount} assignments completed
+            </span>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={onView}
+            disabled={isLoading}
+            className="flex-1"
+          >
+            <Eye className="h-4 w-4 mr-2" />
+            View Details
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onUnenroll}
+            disabled={isLoading}
+            className="opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function MyCoursesPage() {
   const { toast } = useToast();
-  const [courses, setCourses] = useState<StudentCourse[]>(mockStudentCourses);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterCategory, setFilterCategory] = useState("All");
   const [sortField, setSortField] = useState<SortField>("title");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
-  const [isLoading, setIsLoading] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<StudentCourse | null>(
     null
   );
-  const [isEnrollmentModalOpen, setIsEnrollmentModalOpen] = useState(false);
   const [isCourseDetailsModalOpen, setIsCourseDetailsModalOpen] =
     useState(false);
+  const [isUnenrollModalOpen, setIsUnenrollModalOpen] = useState(false);
+  const [courseToUnenroll, setCourseToUnenroll] = useState<StudentCourse | null>(null);
+
+  // API hooks
+  const {
+    data: coursesData,
+    isLoading,
+    error,
+  } = useStudentCourses({
+    limit: 100,
+  });
+
+  const queryClient = useQueryClient();
+  const [isUnenrolling, setIsUnenrolling] = useState<string | null>(null);
+
+  const courses = useMemo(() => {
+    return coursesData?.items || [];
+  }, [coursesData]);
+
+  // Extract unique categories from courses
+  const courseCategories = useMemo(() => {
+    const categories = new Set<string>(["All"]);
+    courses.forEach((course) => {
+      if (course.category) categories.add(course.category);
+    });
+    return Array.from(categories);
+  }, [courses]);
 
   // Filter and sort courses
   const filteredAndSortedCourses = useMemo(() => {
@@ -136,96 +260,51 @@ export default function MyCoursesPage() {
     setIsCourseDetailsModalOpen(true);
   };
 
-  const handleEnrollCourse = () => {
-    setIsEnrollmentModalOpen(true);
+  const handleUnenrollClick = (course: StudentCourse) => {
+    setCourseToUnenroll(course);
+    setIsUnenrollModalOpen(true);
   };
 
-  const handleEnrollInCourse = async (courseId: number) => {
-    setIsLoading(true);
+  const handleConfirmUnenroll = async () => {
+    if (!courseToUnenroll) return;
+
+    setIsUnenrolling(courseToUnenroll.id);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      // Add the new course to the student's courses
-      const newCourse: StudentCourse = {
-        id: courseId,
-        title: "New Enrolled Course",
-        instructor: "Prof. New Instructor",
-        progress: 0,
-        totalLessons: 20,
-        completedLessons: 0,
-        duration: "8 weeks",
-        thumbnail: "/course-thumbnails/new-course.jpg",
-        status: "Active",
-        category: "New Category",
-        startDate: new Date().toISOString().split("T")[0],
-        endDate: new Date(Date.now() + 8 * 7 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .split("T")[0],
-        rating: 4.5,
-        description: "A newly enrolled course.",
-      };
-
-      setCourses((prevCourses) => [...prevCourses, newCourse]);
-    } catch (error) {
-      throw error; // Re-throw to be handled by the modal
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleContinueLearning = async (courseId: number) => {
-    setIsLoading(true);
-    try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Update course progress
-      setCourses((prevCourses) =>
-        prevCourses.map((course) =>
-          course.id === courseId
-            ? {
-                ...course,
-                completedLessons: Math.min(
-                  course.completedLessons + 1,
-                  course.totalLessons
-                ),
-                progress: Math.min(
-                  Math.round(
-                    ((course.completedLessons + 1) / course.totalLessons) * 100
-                  ),
-                  100
-                ),
-                status:
-                  course.completedLessons + 1 >= course.totalLessons
-                    ? "Completed"
-                    : course.status,
-              }
-            : course
-        )
+      const response = await apiClient<ApiSuccess<{ message: string }>>(
+        `/api/student/courses/${courseToUnenroll.id}`,
+        {
+          method: "DELETE",
+        }
       );
-    } catch (error) {
-      throw error;
+
+      if (response.success) {
+        toast({
+          title: "Success",
+          description: "Successfully unenrolled from course",
+        });
+        queryClient.invalidateQueries({ queryKey: ["student", "courses"] });
+        setIsUnenrollModalOpen(false);
+        setCourseToUnenroll(null);
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to unenroll from course",
+        variant: "destructive",
+      });
     } finally {
-      setIsLoading(false);
+      setIsUnenrolling(null);
     }
   };
 
-  const handleReviewCourse = async (courseId: number) => {
-    setIsLoading(true);
-    try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      toast({
-        title: "Course Review",
-        description: "Opening course review materials...",
-      });
-    } catch (error) {
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
+  const handleContinueLearning = async (courseId: string) => {
+    toast({
+      title: "Opening Course",
+      description: "Course content will open in assignments page.",
+      variant: "default",
+    });
+    // Could navigate to assignments page filtered by course
+    window.location.href = `/student/assignments?courseId=${courseId}`;
   };
 
   // Statistics
@@ -235,7 +314,7 @@ export default function MyCoursesPage() {
       (course) => course.status === "Completed"
     ).length;
     const activeCourses = courses.filter(
-      (course) => course.status === "Active"
+      (course) => course.status === "In Progress"
     ).length;
     const avgProgress =
       courses.reduce((acc, course) => acc + course.progress, 0) / totalCourses;
@@ -269,18 +348,6 @@ export default function MyCoursesPage() {
               courses.
             </p>
           </div>
-          <Button
-            className="bg-primary hover:bg-primary/90"
-            onClick={handleEnrollCourse}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Plus className="h-4 w-4 mr-2" />
-            )}
-            Enroll in Course
-          </Button>
         </div>
       </div>
 
@@ -313,7 +380,8 @@ export default function MyCoursesPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="All">All Status</SelectItem>
-                  <SelectItem value="Active">Active</SelectItem>
+                  <SelectItem value="Enrolled">Enrolled</SelectItem>
+                  <SelectItem value="In Progress">In Progress</SelectItem>
                   <SelectItem value="Completed">Completed</SelectItem>
                 </SelectContent>
               </Select>
@@ -480,36 +548,47 @@ export default function MyCoursesPage() {
         </CardContent>
       </Card>
 
+      {/* Loading State */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      )}
+
+      {/* Error State */}
+      {error && (
+        <Card
+          className={cn(
+            glassStyles.card,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
+          <CardContent className="p-12 text-center">
+            <p className="text-muted-foreground">
+              {error.message || "Failed to load courses. Please try again later."}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Courses Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredAndSortedCourses.map((course) => (
-          <div key={course.id} className="relative group">
+      {!isLoading && !error && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredAndSortedCourses.map((course) => (
             <CourseCard
-              title={course.title}
-              instructor={course.instructor}
-              progress={course.progress}
-              totalLessons={course.totalLessons}
-              completedLessons={course.completedLessons}
-              duration={course.duration}
-              thumbnail={course.thumbnail}
-              onContinueLearning={() => handleContinueLearning(course.id)}
-              onReviewCourse={() => handleReviewCourse(course.id)}
-              isLoading={isLoading}
+              key={course.id}
+              course={course}
+              onView={() => handleViewCourse(course)}
+              onUnenroll={() => handleUnenrollClick(course)}
+              isLoading={isUnenrolling === course.id}
             />
-            <Button
-              variant="outline"
-              size="sm"
-              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-              onClick={() => handleViewCourse(course)}
-            >
-              <Eye className="h-4 w-4" />
-            </Button>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Empty State (if no courses) */}
-      {filteredAndSortedCourses.length === 0 && (
+      {!isLoading && !error && filteredAndSortedCourses.length === 0 && courses.length === 0 && (
         <Card
           className={cn(
             glassStyles.card,
@@ -529,33 +608,133 @@ export default function MyCoursesPage() {
                 ? "Try adjusting your search or filter criteria."
                 : "You haven't enrolled in any courses yet. Start your learning journey today!"}
             </p>
-            <Button className="bg-primary hover:bg-primary/90">
-              <Plus className="h-4 w-4 mr-2" />
-              Browse Courses
+            <Button 
+              className="bg-primary hover:bg-primary/90"
+              onClick={() => window.location.href = "/student"}
+            >
+              Go to Dashboard
             </Button>
           </CardContent>
         </Card>
       )}
 
-      {/* Modals */}
-      <CourseEnrollmentModal
-        isOpen={isEnrollmentModalOpen}
-        onClose={() => setIsEnrollmentModalOpen(false)}
-        onEnroll={handleEnrollInCourse}
-        isLoading={isLoading}
-      />
+      {/* Unenroll Confirmation Modal */}
+      {courseToUnenroll && (
+        <Dialog open={isUnenrollModalOpen} onOpenChange={(open) => {
+          if (!open) {
+            setIsUnenrollModalOpen(false);
+            setCourseToUnenroll(null);
+          }
+        }}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-orange-600">
+                <AlertTriangle className="h-5 w-5" />
+                Unenroll from Course
+              </DialogTitle>
+              <DialogDescription>
+                Are you sure you want to unenroll from "{courseToUnenroll.title}"? This action will remove all your attendance records and submissions for this course. This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
 
-      <CourseDetailsModal
-        isOpen={isCourseDetailsModalOpen}
-        onClose={() => {
-          setIsCourseDetailsModalOpen(false);
-          setSelectedCourse(null);
-        }}
-        course={selectedCourse}
-        onContinueLearning={handleContinueLearning}
-        onReviewCourse={handleReviewCourse}
-        isLoading={isLoading}
-      />
+            <DialogFooter>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setIsUnenrollModalOpen(false);
+                  setCourseToUnenroll(null);
+                }} 
+                disabled={isUnenrolling !== null}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleConfirmUnenroll}
+                disabled={isUnenrolling !== null}
+              >
+                {isUnenrolling !== null ? "Unenrolling..." : "Unenroll"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Course Details Modal */}
+      {selectedCourse && (
+        <Dialog open={isCourseDetailsModalOpen} onOpenChange={setIsCourseDetailsModalOpen}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold text-foreground flex items-center gap-2">
+                <BookOpen className="h-6 w-6 text-primary" />
+                Course Details
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-6">
+              <Card className={cn(glassStyles.card, "rounded-xl shadow-glass-sm")}>
+                <CardHeader>
+                  <CardTitle className="text-xl font-semibold text-foreground mb-2">
+                    {selectedCourse.title}
+                  </CardTitle>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xs px-2 py-1 rounded bg-primary/10 text-primary">
+                      {selectedCourse.category}
+                    </span>
+                    <span className="text-xs px-2 py-1 rounded bg-muted text-muted-foreground">
+                      {selectedCourse.status}
+                    </span>
+                  </div>
+                  <p className="text-muted-foreground mb-2">
+                    Instructor: {selectedCourse.instructor}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {selectedCourse.description}
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Progress</span>
+                      <span className="font-medium text-foreground">{selectedCourse.progress}%</span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all"
+                        style={{ width: `${selectedCourse.progress}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>
+                        {selectedCourse.completedAssignments} of {selectedCourse.assignmentsCount} assignments completed
+                      </span>
+                      <span>
+                        Attendance: {selectedCourse.attendancePercentage}%
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <div className="flex gap-3">
+                <Button
+                  onClick={() => handleContinueLearning(selectedCourse.id)}
+                  className="flex-1"
+                >
+                  View Assignments
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsCourseDetailsModalOpen(false);
+                    setSelectedCourse(null);
+                  }}
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

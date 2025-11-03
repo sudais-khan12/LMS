@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,85 +33,92 @@ import {
   Bell,
   Palette,
   Eye,
+  Loader2,
 } from "lucide-react";
-import {
-  StudentProfile,
-  NotificationSettings,
-  ThemeSettings,
-  PrivacySettings,
-  mockStudentProfile,
-  mockNotificationSettings,
-  mockThemeSettings,
-  mockPrivacySettings,
-  profileValidationSchema,
-} from "@/data/mock/studentProfile";
+import { useStudentProfile, useUpdateStudentProfile } from "@/lib/hooks/api/student";
 import ProfileForm from "@/components/student/ProfileForm";
+
+interface NotificationSettings {
+  emailNotifications: boolean;
+  pushNotifications: boolean;
+  assignmentReminders: boolean;
+  gradeUpdates: boolean;
+}
+
+interface ThemeSettings {
+  theme: string;
+  fontSize: string;
+  colorScheme: string;
+}
+
+interface PrivacySettings {
+  profileVisibility: string;
+  showEmail: boolean;
+  showPhone: boolean;
+}
 
 export default function ProfilePage() {
   const { toast } = useToast();
-  const [profileData, setProfileData] =
-    useState<StudentProfile>(mockStudentProfile);
+  const { data: profileData, isLoading, error } = useStudentProfile();
+  const updateProfile = useUpdateStudentProfile();
+  
   const [notificationSettings, setNotificationSettings] =
-    useState<NotificationSettings>(mockNotificationSettings);
+    useState<NotificationSettings>({
+      emailNotifications: true,
+      pushNotifications: true,
+      assignmentReminders: true,
+      gradeUpdates: true,
+    });
   const [themeSettings, setThemeSettings] =
-    useState<ThemeSettings>(mockThemeSettings);
+    useState<ThemeSettings>({
+      theme: "system",
+      fontSize: "medium",
+      colorScheme: "blue",
+    });
   const [privacySettings, setPrivacySettings] =
-    useState<PrivacySettings>(mockPrivacySettings);
+    useState<PrivacySettings>({
+      profileVisibility: "public",
+      showEmail: true,
+      showPhone: false,
+    });
   const [isEditing, setIsEditing] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const achievements = [
-    {
-      id: 1,
-      title: "Dean's List",
-      description: "Achieved GPA above 3.5 for Spring 2024",
-      date: "2024-05-15",
-      icon: Award,
-    },
-    {
-      id: 2,
-      title: "Perfect Attendance",
-      description: "100% attendance for React Fundamentals course",
-      date: "2024-04-30",
-      icon: Clock,
-    },
-    {
-      id: 3,
-      title: "Course Completion",
-      description: "Completed Database Design course with A+ grade",
-      date: "2024-03-20",
-      icon: BookOpen,
-    },
-  ];
-
-  const validateField = (field: string, value: string): string | undefined => {
-    const rules = profileValidationSchema[field];
-    if (!rules) return undefined;
-
-    if (rules.required && !value.trim()) {
-      return `${field} is required`;
+  // Calculate achievements from profile data
+  const achievements = React.useMemo(() => {
+    const achievementsList = [];
+    
+    if (profileData?.stats?.currentGPA && profileData.stats.currentGPA >= 3.5) {
+      achievementsList.push({
+        id: 1,
+        title: "Dean's List",
+        description: `Achieved GPA of ${profileData.stats.currentGPA.toFixed(2)}`,
+        date: new Date().toISOString().split('T')[0],
+        icon: Award,
+      });
     }
-
-    if (rules.minLength && value.length < rules.minLength) {
-      return `${field} must be at least ${rules.minLength} characters`;
+    
+    if (profileData?.stats?.attendanceRate && profileData.stats.attendanceRate >= 95) {
+      achievementsList.push({
+        id: 2,
+        title: "Perfect Attendance",
+        description: `${profileData.stats.attendanceRate}% attendance rate`,
+        date: new Date().toISOString().split('T')[0],
+        icon: Clock,
+      });
     }
-
-    if (rules.maxLength && value.length > rules.maxLength) {
-      return `${field} must be no more than ${rules.maxLength} characters`;
+    
+    if (profileData?.stats?.averageGrade && profileData.stats.averageGrade >= 90) {
+      achievementsList.push({
+        id: 3,
+        title: "Excellent Performance",
+        description: `Average grade of ${profileData.stats.averageGrade.toFixed(2)}%`,
+        date: new Date().toISOString().split('T')[0],
+        icon: BookOpen,
+      });
     }
-
-    if (rules.pattern && !rules.pattern.test(value)) {
-      return `${field} format is invalid`;
-    }
-
-    return undefined;
-  };
-
-  const handleProfileChange = (field: keyof StudentProfile, value: string) => {
-    const error = validateField(field, value);
-    setErrors((prev) => ({ ...prev, [field]: error || "" }));
-    setProfileData((prev) => ({ ...prev, [field]: value }));
-  };
+    
+    return achievementsList;
+  }, [profileData]);
 
   const handleNotificationChange = (
     field: keyof NotificationSettings,
@@ -131,22 +138,21 @@ export default function ProfilePage() {
     setPrivacySettings((prev) => ({ ...prev, [field]: value as unknown }));
   };
 
-  const handleSaveProfile = () => {
-    const hasErrors = Object.values(errors).some((error) => error);
-    if (hasErrors) {
-      toast({
-        title: "Validation Error",
-        description: "Please fix the errors before saving.",
-        variant: "destructive",
-      });
-      return;
+  const handleSaveProfile = async (formData: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    password?: string;
+    enrollmentNo?: string;
+    semester?: number;
+    section?: string;
+  }) => {
+    try {
+      await updateProfile.mutateAsync(formData);
+      setIsEditing(false);
+    } catch (error) {
+      // Error is handled by the mutation hook
     }
-
-    toast({
-      title: "Profile Updated",
-      description: "Your profile has been updated successfully.",
-    });
-    setIsEditing(false);
   };
 
   const handleEnable2FA = () => {
@@ -194,14 +200,22 @@ export default function ProfilePage() {
             <Badge variant="secondary" className="bg-green-100 text-green-700">
               Active Student
             </Badge>
-            <Badge variant="secondary" className="bg-blue-100 text-blue-700">
-              {profileData.program}
-            </Badge>
+            {profileData?.profile?.program && (
+              <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                {profileData.profile.program}
+              </Badge>
+            )}
             <Button
               variant={isEditing ? "default" : "outline"}
               onClick={() => setIsEditing(!isEditing)}
+              disabled={updateProfile.isPending}
             >
-              {isEditing ? (
+              {updateProfile.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : isEditing ? (
                 <>
                   <Save className="h-4 w-4 mr-2" />
                   Save Changes
@@ -241,7 +255,7 @@ export default function ProfilePage() {
                     Student ID
                   </p>
                   <p className="font-semibold text-foreground">
-                    {profileData.studentId}
+                    {profileData?.profile?.studentId || "N/A"}
                   </p>
                 </div>
               </div>
@@ -254,7 +268,9 @@ export default function ProfilePage() {
                     Enrollment Date
                   </p>
                   <p className="font-semibold text-foreground">
-                    {profileData.enrollmentDate}
+                    {profileData?.profile?.enrollmentDate 
+                      ? new Date(profileData.profile.enrollmentDate).toLocaleDateString()
+                      : "N/A"}
                   </p>
                 </div>
               </div>
@@ -269,7 +285,7 @@ export default function ProfilePage() {
                     Program
                   </p>
                   <p className="font-semibold text-foreground">
-                    {profileData.program}
+                    {profileData?.profile?.program || "N/A"}
                   </p>
                 </div>
               </div>
@@ -282,7 +298,7 @@ export default function ProfilePage() {
                     Current GPA
                   </p>
                   <p className="font-semibold text-foreground">
-                    {profileData.gpa}
+                    {profileData?.profile?.gpa || "N/A"}
                   </p>
                 </div>
               </div>
@@ -297,7 +313,7 @@ export default function ProfilePage() {
                     Credits Earned
                   </p>
                   <p className="font-semibold text-foreground">
-                    {profileData.credits}
+                    {profileData?.profile?.credits || "0"}
                   </p>
                 </div>
               </div>
@@ -310,7 +326,7 @@ export default function ProfilePage() {
                     Semester
                   </p>
                   <p className="font-semibold text-foreground">
-                    {profileData.semester}
+                    {profileData?.profile?.semester || "N/A"}
                   </p>
                 </div>
               </div>
@@ -320,7 +336,32 @@ export default function ProfilePage() {
       </Card>
 
       {/* Profile Form */}
-      <ProfileForm initialData={profileData} />
+      {isLoading ? (
+        <Card className={cn(glassStyles.card, "rounded-2xl shadow-glass-sm")}>
+          <CardContent className="p-12 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
+            <p className="text-muted-foreground">Loading profile...</p>
+          </CardContent>
+        </Card>
+      ) : error ? (
+        <Card className={cn(glassStyles.card, "rounded-2xl shadow-glass-sm")}>
+          <CardContent className="p-12 text-center">
+            <p className="text-destructive">Error loading profile. Please try again.</p>
+          </CardContent>
+        </Card>
+      ) : profileData ? (
+        <ProfileForm 
+          initialData={{
+            name: profileData.profile.name,
+            email: profileData.profile.email,
+            studentId: profileData.profile.studentId,
+            phone: profileData.profile.phone,
+          }}
+          isEditing={isEditing}
+          onSave={handleSaveProfile}
+          isLoading={updateProfile.isPending}
+        />
+      ) : null}
 
       {/* Notification Settings */}
       <Card

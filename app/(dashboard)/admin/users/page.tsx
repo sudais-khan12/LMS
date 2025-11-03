@@ -11,6 +11,13 @@ import { glassStyles, animationClasses } from "@/config/constants";
 import { useToast } from "@/hooks/use-toast";
 import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 import {
+  useAdminUsers,
+  useCreateAdminUser,
+  useUpdateAdminUser,
+  useDeleteAdminUser,
+  type AdminUser,
+} from "@/lib/hooks/api/admin";
+import {
   Search,
   Filter,
   Plus,
@@ -34,77 +41,11 @@ import {
 import UserForm from "@/components/admin/UserForm";
 import UserDetailsModal from "@/components/admin/UserDetailsModal";
 import DeleteConfirmationModal from "@/components/admin/DeleteConfirmationModal";
+import {
+  TableSkeleton,
+  StatsCardSkeleton,
+} from "@/components/ui/loading-skeleton";
 import type { BaseUser } from "@/types";
-
-// Mock users data
-const initialUsersData: BaseUser[] = [
-  {
-    id: 1,
-    name: "John Doe",
-    email: "john.doe@example.com",
-    phone: "+1 (555) 123-4567",
-    avatar: "JD",
-    department: "Computer Science",
-    joinDate: "2024-01-15",
-    status: "Active" as const,
-    verified: true,
-  },
-  {
-    id: 2,
-    name: "Sarah Wilson",
-    email: "sarah.wilson@example.com",
-    phone: "+1 (555) 234-5678",
-    avatar: "SW",
-    department: "Computer Science",
-    joinDate: "2024-01-10",
-    status: "Active" as const,
-    verified: true,
-  },
-  {
-    id: 3,
-    name: "Mike Johnson",
-    email: "mike.johnson@example.com",
-    phone: "+1 (555) 345-6789",
-    avatar: "MJ",
-    department: "Mathematics",
-    joinDate: "2024-01-20",
-    status: "Pending" as const,
-    verified: false,
-  },
-  {
-    id: 4,
-    name: "Emily Davis",
-    email: "emily.davis@example.com",
-    phone: "+1 (555) 456-7890",
-    avatar: "ED",
-    department: "Computer Science",
-    joinDate: "2024-01-18",
-    status: "Active" as const,
-    verified: true,
-  },
-  {
-    id: 5,
-    name: "David Brown",
-    email: "david.brown@example.com",
-    phone: "+1 (555) 567-8901",
-    avatar: "DB",
-    department: "Computer Science",
-    joinDate: "2024-01-12",
-    status: "Active" as const,
-    verified: true,
-  },
-  {
-    id: 6,
-    name: "Lisa Garcia",
-    email: "lisa.garcia@example.com",
-    phone: "+1 (555) 678-9012",
-    avatar: "LG",
-    department: "Administration",
-    joinDate: "2023-12-01",
-    status: "Active" as const,
-    verified: true,
-  },
-];
 
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -143,33 +84,70 @@ type SortField =
   | "lastActive";
 type SortDirection = "asc" | "desc";
 
-type UserWithRole = Omit<BaseUser, 'status'> & {
+type UserWithRole = AdminUser & {
   role: "Student" | "Teacher" | "Admin";
   status: "Active" | "Pending" | "Inactive";
   lastActive: string;
   courses: string[];
+  phone?: string;
+  department?: string;
+  joinDate?: string;
+  avatar?: string;
 };
+
+function mapApiUserToUIUser(user: AdminUser): UserWithRole {
+  return {
+    ...user,
+    role:
+      user.role === "STUDENT"
+        ? "Student"
+        : user.role === "TEACHER"
+        ? "Teacher"
+        : "Admin",
+    status: "Active" as const,
+    lastActive: "Recently",
+    courses: [],
+    phone: user.phone || "",
+    department: user.department || "",
+    joinDate: new Date().toISOString().split("T")[0],
+    avatar: user.name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase(),
+  };
+}
 
 export default function AdminUsersPage() {
   const { toast } = useToast();
-  const [users, setUsers] = useState<UserWithRole[]>(
-    initialUsersData.map((u) => ({
-      ...u,
-      status: u.status === "Suspended" ? "Inactive" as const : u.status,
-      role: "Student" as const,
-      lastActive: "2 hours ago",
-      courses: [],
-    }))
-  );
   const [searchTerm, setSearchTerm] = useState("");
   const [filterRole, setFilterRole] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
-  const [isLoading, setIsLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
+  const pageSize = 20;
 
-  // Debounce search term for better performance
+  // API hooks
   const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
+  const {
+    data: usersData,
+    isLoading,
+    error,
+  } = useAdminUsers({
+    limit: pageSize,
+    skip: currentPage * pageSize,
+    role: filterRole !== "All" ? filterRole.toUpperCase() : undefined,
+    q: debouncedSearchTerm || undefined,
+  });
+
+  const createUser = useCreateAdminUser();
+  const updateUser = useUpdateAdminUser();
+  const deleteUser = useDeleteAdminUser();
+
+  const users = useMemo(() => {
+    return usersData?.items.map(mapApiUserToUIUser) || [];
+  }, [usersData]);
 
   // Modal states
   const [isUserFormOpen, setIsUserFormOpen] = useState(false);
@@ -178,24 +156,21 @@ export default function AdminUsersPage() {
   const [selectedUser, setSelectedUser] = useState<UserWithRole | null>(null);
   const [editingUser, setEditingUser] = useState<UserWithRole | null>(null);
 
-  // Filter and sort users with debounced search
-  const filteredAndSortedUsers = useMemo(() => {
-    const filtered = users.filter((user) => {
-      const matchesSearch =
-        user.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
-        user.email.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
-        user.department
-          .toLowerCase()
-          .includes(debouncedSearchTerm.toLowerCase()) ||
-        user.phone.includes(debouncedSearchTerm);
-      const matchesRole = filterRole === "All" || user.role === filterRole;
+  // Filter users on client side (since API handles search via `q` parameter)
+  // Note: Search is handled server-side via the `q` parameter, and role filtering via `role` parameter
+  const filteredUsers = useMemo(() => {
+    return users.filter((user) => {
       const matchesStatus =
         filterStatus === "All" || user.status === filterStatus;
-      return matchesSearch && matchesRole && matchesStatus;
+      return matchesStatus;
     });
+  }, [users, filterStatus]);
 
-    // Sort users
-    filtered.sort((a, b) => {
+  // Sort users on client side
+  const filteredAndSortedUsers = useMemo(() => {
+    const sorted = [...filteredUsers];
+
+    sorted.sort((a, b) => {
       let aValue: string | number;
       let bValue: string | number;
 
@@ -234,15 +209,17 @@ export default function AdminUsersPage() {
       return 0;
     });
 
-    return filtered;
+    return sorted;
   }, [
-    users,
-    debouncedSearchTerm,
-    filterRole,
-    filterStatus,
+    filteredUsers,
     sortField,
     sortDirection,
   ]);
+
+  // Calculate pagination info
+  const totalPages = Math.ceil((usersData?.total || 0) / pageSize);
+  const startIndex = currentPage * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, usersData?.total || 0);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -282,120 +259,62 @@ export default function AdminUsersPage() {
     setIsDeleteModalOpen(true);
   };
 
-  const handleToggleStatus = async (userId: number, currentStatus: string) => {
-    setIsLoading(true);
-    try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      setUsers((prevUsers) =>
-        prevUsers.map((user) =>
-          user.id === userId
-            ? {
-                ...user,
-                status:
-                  currentStatus === "Active"
-                    ? "Inactive"
-                    : ("Active" as "Active" | "Inactive"),
-                lastActive: "Just now",
-              }
-            : user
-        )
-      );
-
-      toast({
-        title: "Status updated",
-        description: `User status has been ${
-          currentStatus === "Active" ? "deactivated" : "activated"
-        }.`,
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update user status",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
+  const handleToggleStatus = async (userId: string, currentStatus: string) => {
+    // Note: This would need an API endpoint for toggling status
+    // For now, we'll use updateUser mutation
+    toast({
+      title: "Info",
+      description: "Status toggle requires API endpoint update",
+    });
   };
 
   const handleSaveUser = async (userData: Partial<UserWithRole>) => {
-    setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
       if (editingUser) {
-        // Update existing user
-        setUsers((prevUsers) =>
-          prevUsers.map((user) =>
-            user.id === editingUser.id
-              ? {
-                  ...user,
-                  ...userData,
-                  lastActive: "Just now",
-                }
-              : user
-          )
-        );
+        await updateUser.mutateAsync({
+          id: editingUser.id,
+          name: userData.name,
+          email: userData.email,
+          role:
+            userData.role === "Student"
+              ? "STUDENT"
+              : userData.role === "Teacher"
+              ? "TEACHER"
+              : "ADMIN",
+          contact: userData.phone,
+        });
       } else {
-        // Add new user
-        const newUser: UserWithRole = {
-          id: Math.max(...users.map((u) => u.id)) + 1,
-          name: (userData as Partial<UserWithRole>).name || "Unknown User",
-          email:
-            (userData as Partial<UserWithRole>).email || "unknown@example.com",
-          role: (userData as Partial<UserWithRole>).role || "Student",
-          status: userData.status || "Pending",
-          phone: userData.phone || "",
-          department: userData.department || "",
-          joinDate: new Date().toISOString().split("T")[0],
-          lastActive: "Just now",
-          avatar: ((userData as Partial<UserWithRole>).name || "Unknown")
-            .split(" ")
-            .map((n: string) => n[0])
-            .join("")
-            .toUpperCase(),
-          courses: [],
-          verified: false,
-        };
-        setUsers((prevUsers) => [...prevUsers, newUser]);
+        if (!userData.name || !userData.email || !userData.role) {
+          throw new Error("Name, email, and role are required");
+        }
+        await createUser.mutateAsync({
+          name: userData.name,
+          email: userData.email,
+          password: "DefaultPassword123!",
+          role:
+            userData.role === "Student"
+              ? "STUDENT"
+              : userData.role === "Teacher"
+              ? "TEACHER"
+              : "ADMIN",
+          contact: userData.phone,
+        });
       }
+      setIsUserFormOpen(false);
+      setEditingUser(null);
     } catch (error) {
-      throw error; // Re-throw to be handled by the form
-    } finally {
-      setIsLoading(false);
+      throw error;
     }
   };
 
   const handleConfirmDelete = async () => {
     if (!selectedUser) return;
-
-    setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      setUsers((prevUsers) =>
-        prevUsers.filter((user) => user.id !== selectedUser.id)
-      );
-
-      toast({
-        title: "User deleted",
-        description: `${selectedUser.name} has been removed from the system.`,
-      });
-
+      await deleteUser.mutateAsync(selectedUser.id);
       setIsDeleteModalOpen(false);
       setSelectedUser(null);
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to delete user",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
+      // Error handled by mutation hook
     }
   };
 
@@ -450,7 +369,7 @@ export default function AdminUsersPage() {
                   Total Users
                 </p>
                 <p className="text-2xl font-bold text-foreground">
-                  {users.length}
+                  {usersData?.total || 0}
                 </p>
               </div>
             </div>
@@ -623,190 +542,259 @@ export default function AdminUsersPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
             <Users className="h-5 w-5 text-primary" />
-            Users ({filteredAndSortedUsers.length})
+            Users ({usersData?.total || 0} total)
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border/50">
-                  <th
-                    className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                    onClick={() => handleSort("name")}
-                  >
-                    <div className="flex items-center gap-2">
-                      User
-                      {getSortIcon("name")}
-                    </div>
-                  </th>
-                  <th
-                    className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                    onClick={() => handleSort("role")}
-                  >
-                    <div className="flex items-center gap-2">
-                      Role
-                      {getSortIcon("role")}
-                    </div>
-                  </th>
-                  <th
-                    className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                    onClick={() => handleSort("status")}
-                  >
-                    <div className="flex items-center gap-2">
-                      Status
-                      {getSortIcon("status")}
-                    </div>
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Department
-                  </th>
-                  <th
-                    className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                    onClick={() => handleSort("joinDate")}
-                  >
-                    <div className="flex items-center gap-2">
-                      Join Date
-                      {getSortIcon("joinDate")}
-                    </div>
-                  </th>
-                  <th
-                    className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                    onClick={() => handleSort("lastActive")}
-                  >
-                    <div className="flex items-center gap-2">
-                      Last Active
-                      {getSortIcon("lastActive")}
-                    </div>
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredAndSortedUsers.map((user) => (
-                  <tr
-                    key={user.id}
-                    className="border-b border-border/30 hover:bg-muted/30 transition-colors duration-200"
-                  >
-                    <td className="py-4 px-4">
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-10 w-10">
-                          <AvatarImage
-                            src={`/avatars/${user.name
-                              .toLowerCase()
-                              .replace(" ", "-")}.jpg`}
-                          />
-                          <AvatarFallback className="text-sm">
-                            {user.avatar}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="font-medium text-foreground flex items-center gap-2">
-                            {user.name}
-                            {user.verified && (
-                              <Shield className="h-3 w-3 text-green-600" />
-                            )}
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            {user.email}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {user.phone}
+          {isLoading ? (
+            <TableSkeleton rows={5} cols={7} />
+          ) : error ? (
+            <div className="text-center py-8 text-destructive">
+              Failed to load users. Please try again.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border/50">
+                    <th
+                      className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                      onClick={() => handleSort("name")}
+                    >
+                      <div className="flex items-center gap-2">
+                        User
+                        {getSortIcon("name")}
+                      </div>
+                    </th>
+                    <th
+                      className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                      onClick={() => handleSort("role")}
+                    >
+                      <div className="flex items-center gap-2">
+                        Role
+                        {getSortIcon("role")}
+                      </div>
+                    </th>
+                    <th
+                      className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                      onClick={() => handleSort("status")}
+                    >
+                      <div className="flex items-center gap-2">
+                        Status
+                        {getSortIcon("status")}
+                      </div>
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Department
+                    </th>
+                    <th
+                      className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                      onClick={() => handleSort("joinDate")}
+                    >
+                      <div className="flex items-center gap-2">
+                        Join Date
+                        {getSortIcon("joinDate")}
+                      </div>
+                    </th>
+                    <th
+                      className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                      onClick={() => handleSort("lastActive")}
+                    >
+                      <div className="flex items-center gap-2">
+                        Last Active
+                        {getSortIcon("lastActive")}
+                      </div>
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredAndSortedUsers.map((user) => (
+                    <tr
+                      key={user.id}
+                      className="border-b border-border/30 hover:bg-muted/30 transition-colors duration-200"
+                    >
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-10 w-10">
+                            <AvatarImage
+                              src={`/avatars/${user.name
+                                .toLowerCase()
+                                .replace(" ", "-")}.jpg`}
+                            />
+                            <AvatarFallback className="text-sm">
+                              {user.avatar}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <div className="font-medium text-foreground flex items-center gap-2">
+                              {user.name}
+                              {user.verified && (
+                                <Shield className="h-3 w-3 text-green-600" />
+                              )}
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              {user.email}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {user.phone}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <Badge
-                        variant="outline"
-                        className={cn("text-sm", getRoleColor(user.role))}
-                      >
-                        {user.role}
-                      </Badge>
-                    </td>
-                    <td className="py-4 px-4">
-                      <Badge
-                        variant="outline"
-                        className={cn("text-sm", getStatusColor(user.status))}
-                      >
-                        {user.status}
-                      </Badge>
-                    </td>
-                    <td className="py-4 px-4 text-sm text-foreground">
-                      {user.department}
-                    </td>
-                    <td className="py-4 px-4 text-sm text-muted-foreground">
-                      {new Date(user.joinDate).toLocaleDateString()}
-                    </td>
-                    <td className="py-4 px-4 text-sm text-muted-foreground">
-                      {user.lastActive}
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="flex items-center gap-2">
-                        <Button
+                      </td>
+                      <td className="py-4 px-4">
+                        <Badge
                           variant="outline"
-                          size="sm"
-                          onClick={() => handleViewUser(user)}
-                          className="flex items-center gap-1"
-                          disabled={isLoading}
+                          className={cn("text-sm", getRoleColor(user.role))}
                         >
-                          <Eye className="h-3 w-3" />
-                          View
-                        </Button>
-                        <Button
+                          {user.role}
+                        </Badge>
+                      </td>
+                      <td className="py-4 px-4">
+                        <Badge
                           variant="outline"
-                          size="sm"
-                          onClick={() => handleEditUser(user)}
-                          className="flex items-center gap-1"
-                          disabled={isLoading}
+                          className={cn("text-sm", getStatusColor(user.status))}
                         >
-                          <Edit className="h-3 w-3" />
-                          Edit
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            handleToggleStatus(user.id, user.status)
-                          }
-                          className={cn(
-                            "flex items-center gap-1",
-                            user.status === "Active"
-                              ? "text-red-600 hover:text-red-700"
-                              : "text-green-600 hover:text-green-700"
-                          )}
-                          disabled={isLoading}
-                        >
-                          {isLoading ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : user.status === "Active" ? (
-                            <UserX className="h-3 w-3" />
-                          ) : (
-                            <UserCheck className="h-3 w-3" />
-                          )}
-                          {user.status === "Active" ? "Suspend" : "Activate"}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDeleteUser(user)}
-                          className="text-red-600 hover:text-red-700 flex items-center gap-1"
-                          disabled={isLoading}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                          Delete
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                          {user.status}
+                        </Badge>
+                      </td>
+                      <td className="py-4 px-4 text-sm text-foreground">
+                        {user.department}
+                      </td>
+                      <td className="py-4 px-4 text-sm text-muted-foreground">
+                        {new Date(user.joinDate).toLocaleDateString()}
+                      </td>
+                      <td className="py-4 px-4 text-sm text-muted-foreground">
+                        {user.lastActive}
+                      </td>
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleViewUser(user)}
+                            className="flex items-center gap-1"
+                            disabled={
+                              createUser.isPending ||
+                              updateUser.isPending ||
+                              deleteUser.isPending
+                            }
+                          >
+                            <Eye className="h-3 w-3" />
+                            View
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleEditUser(user)}
+                            className="flex items-center gap-1"
+                            disabled={
+                              createUser.isPending ||
+                              updateUser.isPending ||
+                              deleteUser.isPending
+                            }
+                          >
+                            <Edit className="h-3 w-3" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              handleToggleStatus(user.id, user.status)
+                            }
+                            className={cn(
+                              "flex items-center gap-1",
+                              user.status === "Active"
+                                ? "text-red-600 hover:text-red-700"
+                                : "text-green-600 hover:text-green-700"
+                            )}
+                            disabled={
+                              createUser.isPending ||
+                              updateUser.isPending ||
+                              deleteUser.isPending
+                            }
+                          >
+                            {isLoading ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : user.status === "Active" ? (
+                              <UserX className="h-3 w-3" />
+                            ) : (
+                              <UserCheck className="h-3 w-3" />
+                            )}
+                            {user.status === "Active" ? "Suspend" : "Activate"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDeleteUser(user)}
+                            className="text-red-600 hover:text-red-700 flex items-center gap-1"
+                            disabled={
+                              createUser.isPending ||
+                              updateUser.isPending ||
+                              deleteUser.isPending
+                            }
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Delete
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {usersData && usersData.total > 0 && (
+        <Card
+          className={cn(
+            glassStyles.card,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                Showing {startIndex + 1} to {endIndex} of {usersData.total} users
+                {totalPages > 1 && ` (Page ${currentPage + 1} of ${totalPages})`}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+                  disabled={currentPage === 0 || isLoading}
+                  className="flex items-center gap-1"
+                >
+                  <ArrowUp className="h-4 w-4 rotate-[-90deg]" />
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground px-2">
+                  Page {currentPage + 1} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
+                  disabled={currentPage >= totalPages - 1 || isLoading}
+                  className="flex items-center gap-1"
+                >
+                  Next
+                  <ArrowDown className="h-4 w-4 rotate-[-90deg]" />
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Modals */}
       <UserForm
@@ -817,7 +805,7 @@ export default function AdminUsersPage() {
         }}
         user={editingUser}
         onSave={handleSaveUser}
-        isLoading={isLoading}
+        isLoading={createUser.isPending || updateUser.isPending}
       />
 
       <UserDetailsModal
@@ -843,7 +831,7 @@ export default function AdminUsersPage() {
         onConfirm={handleConfirmDelete}
         title="Delete User"
         description={`Are you sure you want to delete ${selectedUser?.name}? This action cannot be undone.`}
-        isLoading={isLoading}
+        isLoading={deleteUser.isPending}
       />
     </div>
   );

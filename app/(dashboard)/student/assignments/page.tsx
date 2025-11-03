@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -11,13 +12,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { glassStyles, animationClasses } from "@/config/constants";
 import { useToast } from "@/hooks/use-toast";
 import {
   Search,
-  Filter,
   ClipboardList,
   Clock,
   CheckCircle,
@@ -29,34 +36,124 @@ import {
   FileText,
   Eye,
   Loader2,
+  Trash2,
+  Edit,
+  Calendar,
+  AlertTriangle,
 } from "lucide-react";
 import {
-  StudentAssignment,
-  mockStudentAssignments,
-  assignmentCourses,
-  assignmentStatuses,
-  AssignmentTable,
-  AssignmentDetailsModal,
-} from "@/features/assignments";
+  useStudentAssignments,
+  useSubmitStudentAssignment,
+  useUpdateStudentSubmission,
+  type StudentAssignment as ApiStudentAssignment,
+} from "@/lib/hooks/api/student";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+
+interface StudentAssignment {
+  id: string;
+  title: string;
+  description?: string;
+  course: string;
+  courseId: string;
+  dueDate: string;
+  points: number;
+  status: "pending" | "submitted" | "overdue";
+  submittedDate?: string;
+  grade?: number | null;
+  feedback?: string;
+  submissionId?: string;
+  fileUrl?: string;
+}
 
 type SortField = "title" | "course" | "dueDate" | "status" | "points";
 type SortDirection = "asc" | "desc";
 
+function mapApiAssignmentToUI(assignment: ApiStudentAssignment): StudentAssignment {
+  const submission = assignment.submission;
+  const dueDate = new Date(assignment.dueDate);
+  const now = new Date();
+  
+  let status: "pending" | "submitted" | "overdue" = "pending";
+  if (submission) {
+    status = "submitted";
+  } else if (dueDate < now) {
+    status = "overdue";
+  }
+
+  return {
+    id: assignment.id,
+    title: assignment.title,
+    description: assignment.description || "",
+    course: assignment.course?.title || assignment.courseId || "Unknown Course",
+    courseId: assignment.courseId,
+    dueDate: assignment.dueDate,
+    points: assignment.points || 0,
+    status,
+    submittedDate: submission?.submittedAt ? new Date(submission.submittedAt).toISOString().split("T")[0] : undefined,
+    grade: submission?.grade ?? undefined,
+    submissionId: submission?.id,
+    fileUrl: submission?.fileUrl,
+  };
+}
+
 export default function AssignmentsPage() {
   const { toast } = useToast();
-  const [assignments, setAssignments] = useState<StudentAssignment[]>(
-    mockStudentAssignments
-  );
+  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterCourse, setFilterCourse] = useState("All");
   const [sortField, setSortField] = useState<SortField>("dueDate");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
-  const [isLoading, setIsLoading] = useState(false);
-  const [selectedAssignment, setSelectedAssignment] =
-    useState<StudentAssignment | null>(null);
-  const [isAssignmentDetailsModalOpen, setIsAssignmentDetailsModalOpen] =
-    useState(false);
+  const [selectedAssignment, setSelectedAssignment] = useState<StudentAssignment | null>(null);
+  const [isAssignmentDetailsModalOpen, setIsAssignmentDetailsModalOpen] = useState(false);
+  const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [submissionContent, setSubmissionContent] = useState("");
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [currentPage, setCurrentPage] = useState(0);
+  const pageSize = 10;
+
+  // Get courseId from URL if present
+  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const courseIdParam = urlParams?.get('courseId') || undefined;
+
+  // API hooks
+  const {
+    data: assignmentsData,
+    isLoading,
+    error,
+    refetch: refetchAssignments,
+  } = useStudentAssignments({
+    limit: 1000,
+    courseId: courseIdParam,
+  });
+
+  const submitAssignment = useSubmitStudentAssignment();
+  const updateSubmission = useUpdateStudentSubmission();
+
+  const assignments = useMemo(() => {
+    return assignmentsData?.items.map(mapApiAssignmentToUI) || [];
+  }, [assignmentsData]);
+
+  // Extract unique courses for filter
+  const courses = useMemo(() => {
+    const uniqueCourses = new Set<string>(["All"]);
+    assignments.forEach((assignment) => {
+      if (assignment.course) uniqueCourses.add(assignment.course);
+    });
+    return Array.from(uniqueCourses);
+  }, [assignments]);
 
   // Filter and sort assignments
   const filteredAndSortedAssignments = useMemo(() => {
@@ -64,7 +161,7 @@ export default function AssignmentsPage() {
       const matchesSearch =
         assignment.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         assignment.course.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        assignment.description.toLowerCase().includes(searchTerm.toLowerCase());
+        (assignment.description?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false);
       const matchesStatus =
         filterStatus === "All" || assignment.status === filterStatus;
       const matchesCourse =
@@ -118,6 +215,20 @@ export default function AssignmentsPage() {
     sortDirection,
   ]);
 
+  // Pagination
+  const totalPages = Math.ceil(filteredAndSortedAssignments.length / pageSize);
+  const paginatedAssignments = useMemo(() => {
+    return filteredAndSortedAssignments.slice(
+      currentPage * pageSize,
+      (currentPage + 1) * pageSize
+    );
+  }, [filteredAndSortedAssignments, currentPage, pageSize]);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [searchTerm, filterStatus, filterCourse]);
+
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
@@ -136,63 +247,151 @@ export default function AssignmentsPage() {
     );
   };
 
-  const handleMarkAsDone = async (assignmentId: number, file?: File) => {
-    setIsLoading(true);
-    try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+  const handleSubmitClick = (assignment: StudentAssignment) => {
+    setSelectedAssignment(assignment);
+    setSelectedFile(null);
+    setSubmissionContent("");
+    setIsSubmitModalOpen(true);
+  };
 
-      setAssignments((prevAssignments) =>
-        prevAssignments.map((assignment) =>
-          assignment.id === assignmentId
-            ? {
-                ...assignment,
-                status: "submitted" as const,
-                submittedDate: new Date().toISOString().split("T")[0],
-              }
-            : assignment
-        )
-      );
+  const handleEditClick = (assignment: StudentAssignment) => {
+    if (!assignment.submissionId) return;
+    setSelectedAssignment(assignment);
+    setSelectedFile(null);
+    setSubmissionContent("");
+    setIsEditModalOpen(true);
+  };
 
-      const assignment = assignments.find((a) => a.id === assignmentId);
-      toast({
-        title: "Assignment Submitted",
-        description: `${assignment?.title} has been submitted successfully${
-          file ? ` with file: ${file.name}` : ""
-        }.`,
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to submit assignment",
-        variant: "destructive",
-      });
-      throw error; // Re-throw to be handled by the modal
-    } finally {
-      setIsLoading(false);
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        toast({
+          title: "File too large",
+          description: "Please select a file smaller than 10MB.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setSelectedFile(file);
     }
   };
+
+  const handleSubmitAssignment = async () => {
+    if (!selectedAssignment) return;
+
+    try {
+      // For file uploads, we'd typically upload to a storage service first
+      // For now, we'll use a placeholder URL
+      const fileUrl = selectedFile 
+        ? `/uploads/${selectedFile.name}` // In production, upload to S3/Cloudinary/etc
+        : undefined;
+
+      await submitAssignment.mutateAsync({
+        assignmentId: selectedAssignment.id,
+        content: submissionContent || undefined,
+        fileUrl: fileUrl || `submission-${Date.now()}.txt`,
+      });
+
+      setIsSubmitModalOpen(false);
+      setSelectedAssignment(null);
+      setSelectedFile(null);
+      setSubmissionContent("");
+      refetchAssignments();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to submit assignment",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpdateSubmission = async () => {
+    if (!selectedAssignment || !selectedAssignment.submissionId) return;
+
+    try {
+      const fileUrl = selectedFile 
+        ? `/uploads/${selectedFile.name}` // In production, upload to S3/Cloudinary/etc
+        : selectedAssignment.fileUrl;
+
+      await updateSubmission.mutateAsync({
+        submissionId: selectedAssignment.submissionId,
+        fileUrl: fileUrl || undefined,
+        content: submissionContent || undefined,
+      });
+
+      setIsEditModalOpen(false);
+      setSelectedAssignment(null);
+      setSelectedFile(null);
+      setSubmissionContent("");
+      refetchAssignments();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update submission",
+        variant: "destructive",
+      });
+    }
+  };
+
 
   const handleViewAssignment = (assignment: StudentAssignment) => {
     setSelectedAssignment(assignment);
     setIsAssignmentDetailsModalOpen(true);
   };
 
+  const getStatusBadge = (status: StudentAssignment["status"]) => {
+    switch (status) {
+      case "submitted":
+        return (
+          <Badge variant="secondary" className="bg-green-100 text-green-700">
+            Submitted
+          </Badge>
+        );
+      case "pending":
+        return (
+          <Badge variant="secondary" className="bg-yellow-100 text-yellow-700">
+            Pending
+          </Badge>
+        );
+      case "overdue":
+        return <Badge variant="destructive">Overdue</Badge>;
+      default:
+        return <Badge variant="secondary">Unknown</Badge>;
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  const formatDateTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
+
   // Statistics
   const stats = useMemo(() => {
-    const submittedCount = assignments.filter(
-      (a) => a.status === "submitted"
-    ).length;
-    const pendingCount = assignments.filter(
-      (a) => a.status === "pending"
-    ).length;
-    const overdueCount = assignments.filter(
-      (a) => a.status === "overdue"
-    ).length;
-    const totalPoints = assignments.reduce((sum, a) => sum + a.points, 0);
+    const submittedCount = assignments.filter((a) => a.status === "submitted").length;
+    const pendingCount = assignments.filter((a) => a.status === "pending").length;
+    const overdueCount = assignments.filter((a) => a.status === "overdue").length;
+    const totalPoints = assignments.reduce((sum, a) => sum + (a.points || 0), 0);
     const earnedPoints = assignments
-      .filter((a) => a.status === "submitted")
-      .reduce((sum, a) => sum + a.points, 0);
+      .filter((a) => a.status === "submitted" && a.grade !== null && a.grade !== undefined)
+      .reduce((sum, a) => sum + ((a.grade || 0) * (a.points || 0)) / 100, 0);
 
     return {
       total: assignments.length,
@@ -200,7 +399,7 @@ export default function AssignmentsPage() {
       pending: pendingCount,
       overdue: overdueCount,
       totalPoints,
-      earnedPoints,
+      earnedPoints: Math.round(earnedPoints),
     };
   }, [assignments]);
 
@@ -228,10 +427,7 @@ export default function AssignmentsPage() {
             <Badge variant="secondary" className="bg-green-100 text-green-700">
               {stats.submitted} Submitted
             </Badge>
-            <Badge
-              variant="secondary"
-              className="bg-yellow-100 text-yellow-700"
-            >
+            <Badge variant="secondary" className="bg-yellow-100 text-yellow-700">
               {stats.pending} Pending
             </Badge>
             {stats.overdue > 0 && (
@@ -260,9 +456,7 @@ export default function AssignmentsPage() {
                 <p className="text-sm font-medium text-muted-foreground">
                   Total Assignments
                 </p>
-                <p className="text-xl font-bold text-foreground">
-                  {stats.total}
-                </p>
+                <p className="text-xl font-bold text-foreground">{stats.total}</p>
               </div>
             </div>
           </CardContent>
@@ -372,13 +566,10 @@ export default function AssignmentsPage() {
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
-                  {assignmentStatuses.map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {status === "All"
-                        ? "All Status"
-                        : status.charAt(0).toUpperCase() + status.slice(1)}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="All">All Status</SelectItem>
+                  <SelectItem value="submitted">Submitted</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="overdue">Overdue</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={filterCourse} onValueChange={setFilterCourse}>
@@ -386,7 +577,7 @@ export default function AssignmentsPage() {
                   <SelectValue placeholder="Course" />
                 </SelectTrigger>
                 <SelectContent>
-                  {assignmentCourses.map((course) => (
+                  {courses.map((course) => (
                     <SelectItem key={course} value={course}>
                       {course}
                     </SelectItem>
@@ -475,16 +666,15 @@ export default function AssignmentsPage() {
         </Card>
       )}
 
-      {/* Assignments Table */}
-      <AssignmentTable
-        assignments={filteredAndSortedAssignments}
-        onMarkAsDone={handleMarkAsDone}
-        onViewAssignment={handleViewAssignment}
-        isLoading={isLoading}
-      />
+      {/* Loading State */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      )}
 
-      {/* Empty State (if no assignments) */}
-      {filteredAndSortedAssignments.length === 0 && (
+      {/* Error State */}
+      {error && (
         <Card
           className={cn(
             glassStyles.card,
@@ -493,32 +683,520 @@ export default function AssignmentsPage() {
           )}
         >
           <CardContent className="p-12 text-center">
-            <div className="mx-auto w-24 h-24 bg-muted/30 rounded-full flex items-center justify-center mb-4">
-              <ClipboardList className="h-12 w-12 text-muted-foreground" />
-            </div>
-            <h3 className="text-lg font-semibold text-foreground mb-2">
-              No assignments found
-            </h3>
-            <p className="text-muted-foreground mb-4">
-              {searchTerm || filterStatus !== "All" || filterCourse !== "All"
-                ? "Try adjusting your search or filter criteria."
-                : "You don't have any assignments yet."}
+            <p className="text-muted-foreground">
+              {error.message || "Failed to load assignments. Please try again later."}
             </p>
           </CardContent>
         </Card>
       )}
 
+      {/* Assignments Table */}
+      {!isLoading && !error && (
+        <Card
+          className={cn(
+            glassStyles.card,
+            "rounded-2xl shadow-glass-sm",
+            animationClasses.scaleIn
+          )}
+        >
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg font-semibold text-foreground">
+              <FileText className="h-5 w-5 text-primary" />
+              Assignments ({filteredAndSortedAssignments.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Title</TableHead>
+                    <TableHead>Course</TableHead>
+                    <TableHead>Due Date</TableHead>
+                    <TableHead>Points</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Grade</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedAssignments.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        {searchTerm || filterStatus !== "All" || filterCourse !== "All"
+                          ? "No assignments match your filters."
+                          : "You don't have any assignments yet."}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    paginatedAssignments.map((assignment) => (
+                      <TableRow
+                        key={assignment.id}
+                        className={cn(
+                          assignment.status === "overdue" &&
+                            "bg-red-50/30 hover:bg-red-50/50"
+                        )}
+                      >
+                        <TableCell className="font-medium">
+                          {assignment.title}
+                        </TableCell>
+                        <TableCell>{assignment.course}</TableCell>
+                        <TableCell>
+                          <span
+                            className={cn(
+                              assignment.status === "overdue" &&
+                                "text-red-600 font-medium"
+                            )}
+                          >
+                            {formatDate(assignment.dueDate)}
+                          </span>
+                        </TableCell>
+                        <TableCell>{assignment.points}</TableCell>
+                        <TableCell>{getStatusBadge(assignment.status)}</TableCell>
+                        <TableCell>
+                          {assignment.grade !== null && assignment.grade !== undefined ? (
+                            <Badge variant="outline" className="bg-blue-100 text-blue-700">
+                              {assignment.grade}%
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewAssignment(assignment)}
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              View
+                            </Button>
+                            {assignment.status === "submitted" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleEditClick(assignment)}
+                                disabled={!assignment.submissionId}
+                              >
+                                <Edit className="h-4 w-4 mr-2" />
+                                Edit
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                className="bg-primary hover:bg-primary/90"
+                                onClick={() => handleSubmitClick(assignment)}
+                                disabled={
+                                  assignment.status === "overdue" &&
+                                  new Date(assignment.dueDate) < new Date()
+                                }
+                              >
+                                <Upload className="h-4 w-4 mr-2" />
+                                Submit
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 py-4 border-t border-border/50 mt-4">
+                <div className="text-sm text-muted-foreground">
+                  Showing {currentPage * pageSize + 1} to{" "}
+                  {Math.min(
+                    (currentPage + 1) * pageSize,
+                    filteredAndSortedAssignments.length
+                  )}{" "}
+                  of {filteredAndSortedAssignments.length} assignments
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((prev) => Math.max(0, prev - 1))}
+                    disabled={currentPage === 0}
+                  >
+                    Previous
+                  </Button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum: number;
+                      if (totalPages <= 5) {
+                        pageNum = i;
+                      } else if (currentPage < 3) {
+                        pageNum = i;
+                      } else if (currentPage > totalPages - 4) {
+                        pageNum = totalPages - 5 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      return (
+                        <Button
+                          key={pageNum}
+                          variant={currentPage === pageNum ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setCurrentPage(pageNum)}
+                        >
+                          {pageNum + 1}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setCurrentPage((prev) => Math.min(totalPages - 1, prev + 1))
+                    }
+                    disabled={currentPage === totalPages - 1}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Assignment Details Modal */}
-      <AssignmentDetailsModal
-        isOpen={isAssignmentDetailsModalOpen}
-        onClose={() => {
-          setIsAssignmentDetailsModalOpen(false);
-          setSelectedAssignment(null);
-        }}
-        assignment={selectedAssignment}
-        onMarkAsDone={handleMarkAsDone}
-        isLoading={isLoading}
-      />
+      {selectedAssignment && (
+        <Dialog
+          open={isAssignmentDetailsModalOpen}
+          onOpenChange={setIsAssignmentDetailsModalOpen}
+        >
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold text-foreground flex items-center gap-2">
+                <FileText className="h-6 w-6 text-primary" />
+                Assignment Details
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-6">
+              <Card className={cn(glassStyles.card, "rounded-xl shadow-glass-sm")}>
+                <CardHeader>
+                  <CardTitle className="text-xl font-semibold text-foreground mb-2">
+                    {selectedAssignment.title}
+                  </CardTitle>
+                  <div className="flex items-center gap-2 mb-3">
+                    {getStatusBadge(selectedAssignment.status)}
+                    {selectedAssignment.grade !== null &&
+                      selectedAssignment.grade !== undefined && (
+                        <Badge variant="outline" className="bg-blue-100 text-blue-700">
+                          Grade: {selectedAssignment.grade}%
+                        </Badge>
+                      )}
+                  </div>
+                  <p className="text-muted-foreground mb-2">
+                    <strong>Course:</strong> {selectedAssignment.course}
+                  </p>
+                  <p className="text-muted-foreground mb-2">
+                    <strong>Points:</strong> {selectedAssignment.points}
+                  </p>
+                  <div className="flex items-center gap-6 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-1">
+                      <Calendar className="h-4 w-4" />
+                      <span
+                        className={cn(
+                          selectedAssignment.status === "overdue" &&
+                            "text-red-600 font-medium"
+                        )}
+                      >
+                        Due: {formatDateTime(selectedAssignment.dueDate)}
+                      </span>
+                    </div>
+                    {selectedAssignment.submittedDate && (
+                      <div className="flex items-center gap-1">
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        <span className="text-green-600">
+                          Submitted: {formatDate(selectedAssignment.submittedDate)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div>
+                    <p className="text-sm font-medium text-foreground mb-2">
+                      Description:
+                    </p>
+                    <p className="text-muted-foreground leading-relaxed">
+                      {selectedAssignment.description || "No description provided."}
+                    </p>
+                  </div>
+                  {selectedAssignment.fileUrl && (
+                    <div className="mt-4">
+                      <p className="text-sm font-medium text-foreground mb-2">
+                        Submitted File:
+                      </p>
+                      <a
+                        href={selectedAssignment.fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline flex items-center gap-2"
+                      >
+                        <FileText className="h-4 w-4" />
+                        {selectedAssignment.fileUrl.split("/").pop()}
+                      </a>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+              <div className="flex gap-3">
+                {selectedAssignment.status === "submitted" && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsAssignmentDetailsModalOpen(false);
+                      handleEditClick(selectedAssignment);
+                    }}
+                    disabled={!selectedAssignment.submissionId}
+                  >
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit Submission
+                  </Button>
+                )}
+                {selectedAssignment.status !== "submitted" && (
+                  <Button
+                    onClick={() => {
+                      setIsAssignmentDetailsModalOpen(false);
+                      handleSubmitClick(selectedAssignment);
+                    }}
+                    disabled={
+                      selectedAssignment.status === "overdue" &&
+                      new Date(selectedAssignment.dueDate) < new Date()
+                    }
+                    className="flex-1"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Submit Assignment
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsAssignmentDetailsModalOpen(false);
+                    setSelectedAssignment(null);
+                  }}
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Submit Assignment Modal */}
+      {selectedAssignment && (
+        <Dialog open={isSubmitModalOpen} onOpenChange={setIsSubmitModalOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Submit Assignment</DialogTitle>
+              <DialogDescription>
+                Submit your assignment: {selectedAssignment.title}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="file">Upload File (Optional)</Label>
+                <div className="mt-2">
+                  <Input
+                    ref={fileInputRef}
+                    id="file"
+                    type="file"
+                    onChange={handleFileSelect}
+                    accept=".pdf,.doc,.docx,.txt,.zip,.rar"
+                    className="hidden"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Choose File
+                  </Button>
+                  {selectedFile && (
+                    <div className="mt-2 p-2 bg-muted rounded flex items-center justify-between">
+                      <span className="text-sm">{selectedFile.name}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedFile(null);
+                          if (fileInputRef.current) {
+                            fileInputRef.current.value = "";
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Accepted: PDF, DOC, DOCX, TXT, ZIP, RAR (Max 10MB)
+                  </p>
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="content">Submission Content (Optional)</Label>
+                <Textarea
+                  id="content"
+                  value={submissionContent}
+                  onChange={(e) => setSubmissionContent(e.target.value)}
+                  placeholder="Enter your submission text here..."
+                  className="mt-2"
+                  rows={4}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsSubmitModalOpen(false);
+                  setSelectedFile(null);
+                  setSubmissionContent("");
+                }}
+                disabled={submitAssignment.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubmitAssignment}
+                disabled={
+                  submitAssignment.isPending ||
+                  (!selectedFile && !submissionContent)
+                }
+              >
+                {submitAssignment.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Submit
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Edit Submission Modal */}
+      {selectedAssignment && selectedAssignment.submissionId && (
+        <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Edit Submission</DialogTitle>
+              <DialogDescription>
+                Update your submission for: {selectedAssignment.title}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="edit-file">Upload New File (Optional)</Label>
+                <div className="mt-2">
+                  <Input
+                    ref={fileInputRef}
+                    id="edit-file"
+                    type="file"
+                    onChange={handleFileSelect}
+                    accept=".pdf,.doc,.docx,.txt,.zip,.rar"
+                    className="hidden"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Choose New File
+                  </Button>
+                  {selectedFile && (
+                    <div className="mt-2 p-2 bg-muted rounded flex items-center justify-between">
+                      <span className="text-sm">{selectedFile.name}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedFile(null);
+                          if (fileInputRef.current) {
+                            fileInputRef.current.value = "";
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                  {selectedAssignment.fileUrl && !selectedFile && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Current file: {selectedAssignment.fileUrl.split("/").pop()}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="edit-content">Submission Content (Optional)</Label>
+                <Textarea
+                  id="edit-content"
+                  value={submissionContent}
+                  onChange={(e) => setSubmissionContent(e.target.value)}
+                  placeholder="Update your submission text..."
+                  className="mt-2"
+                  rows={4}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsEditModalOpen(false);
+                  setSelectedFile(null);
+                  setSubmissionContent("");
+                }}
+                disabled={updateSubmission.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleUpdateSubmission}
+                disabled={updateSubmission.isPending}
+              >
+                {updateSubmission.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  <>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Update
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
     </div>
   );
 }
